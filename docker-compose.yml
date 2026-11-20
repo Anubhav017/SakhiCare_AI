@@ -1,0 +1,96 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18-trixie
+    container_name: task_postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sakhicare-local}
+      POSTGRES_DB: sakhicare
+
+    ports:
+      - "127.0.0.1:5433:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sakhicare"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    environment: &backend-environment
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sakhicare-local}
+      SECRET_KEY: ${SECRET_KEY:-}
+      ALGORITHM: HS256
+      AUTO_CREATE_TABLES: "true"
+      SESSION_COOKIE_SECURE: "false"
+      OLLAMA_BASE_URL: http://ollama:11434
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
+      CHAT_MODEL: ${CHAT_MODEL:-llama3.2:3b}
+    volumes:
+      - session_key:/run/sakhicare
+    ports:
+      - "127.0.0.1:${SAKHICARE_API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:${SAKHICARE_WEB_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  worker:
+    build: ./backend
+    command: ["python", "-m", "src.documents.worker"]
+    environment: *backend-environment
+    volumes:
+      - session_key:/run/sakhicare:ro
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      ollama-models:
+        condition: service_completed_successfully
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+
+  ollama-models:
+    image: ollama/ollama:latest
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ['ollama pull "$$EMBEDDING_MODEL"; ollama pull "$$CHAT_MODEL"']
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
+      CHAT_MODEL: ${CHAT_MODEL:-llama3.2:3b}
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+volumes:
+  session_key:
+  ollama_models:
+  postgres_data:

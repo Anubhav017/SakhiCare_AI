@@ -1,0 +1,26 @@
+[project]
+name = "sakhi-care-backend"
+version = "0.1.0"
+description = "SakhiCare AI backend using FastAPI and PostgreSQL"
+readme = "README.md"
+authors = [
+    { name = "Anubhav017", email = "Anubhav11071990@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "pydantic-settings",
+    "psycopg[binary]>=3.3.9",
+    "pwdlib[argon2]>=0.4.2",
+    "pyjwt>=2.15.1",
+    "alembic>=1.20.1",
+    "pypdf>=7.1.1",
+    "pgvector>=0.5.1",
+    "python-multipart>=0.0.34",
+]
+
+[tool.uv]
+package = false

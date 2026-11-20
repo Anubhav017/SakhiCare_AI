@@ -1,0 +1,10 @@
+*
+!pyproject.toml
+!uv.lock
+!src/
+!src/**
+!migrations/
+!migrations/**
+!alembic.ini
+!docker-entrypoint.sh
+**/__pycache__

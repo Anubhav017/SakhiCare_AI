@@ -1,7 +1,12 @@
+export type ScreeningRisk = "low" | "moderate" | "high";
+
+export type AnemiaStatus = "confirmed" | "not_anemic" | null;
+
 export type Patient = {
   id: string; name: string; village: string | null; age: number | null;
+  anemia_status?: AnemiaStatus;
   ashaUserId: number;
-  screening: { date: string; hb: number | null; method: string } | null;
+  screening: { date: string; hb: number | null; method: string; risk?: ScreeningRisk | null } | null;
 };
 
 export type Followup = {
@@ -23,13 +28,15 @@ export function formatDate(value: string) {
 }
 
 type PatientInput = Pick<Patient, "name" | "village" | "age">;
-type PatientResponse = PatientInput & { id: number; asha_user_id: number; screening?: Patient["screening"] };
+type PatientResponse = PatientInput & { id: number; asha_user_id: number; anemia_status?: AnemiaStatus; screening?: Patient["screening"] };
 
 async function recordRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`/backend-api${path}`, {
-      ...options, signal: AbortSignal.timeout(10000), cache: "no-store",
+      ...options, signal: options.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(10000)])
+        : AbortSignal.timeout(10000), cache: "no-store",
     });
   } catch {
     throw new Error("Could not reach SakhiCare. Check your connection and try again.");
@@ -59,7 +66,7 @@ export async function registerPatient(patient: PatientInput): Promise<Patient> {
 
 export function patientDetails(patient: Patient): string {
   const age = patient.age === null ? null : `${patient.age} years`;
-  return [patient.village, age].filter(Boolean).join(" ? ");
+  return [patient.village, age].filter(Boolean).join(" \u00b7 ");
 }
 
 
@@ -106,4 +113,83 @@ export type HbReading = { id: number; date: string; hb: number; method: string }
 
 export function listHbReadings(patientId: string) {
   return recordRequest<HbReading[]>(`/patients/${patientId}/screening/history`);
+}
+
+export async function uploadPatientReport(patientId: string, file: File): Promise<void> {
+  if (file.size > 10 * 1024 * 1024) throw new Error("PDFs must be 10 MB or smaller.");
+  if (!file.name.toLowerCase().endsWith(".pdf")) throw new Error("Choose a PDF file.");
+  const body = new FormData();
+  body.set("file", file);
+  await recordRequest("/patients/" + encodeURIComponent(patientId) + "/reports", {
+    method: "POST",
+    headers: { "X-SakhiCare-Session": "1" },
+    body,
+  });
+}
+
+export type Referral = {
+  id: number;
+  facility: string;
+  referred_on: string;
+  status: "referred" | "attended" | "closed";
+  outcome: string | null;
+};
+
+function patientWrite(method: "POST" | "PUT", body: object): RequestInit {
+  return {
+    method,
+    headers: { "Content-Type": "application/json", "X-SakhiCare-Session": "1" },
+    body: JSON.stringify(body),
+  };
+}
+
+export async function saveAnemiaAssessment(id: string, status: AnemiaStatus) {
+  return toPatient(await recordRequest<PatientResponse>(
+    "/patients/" + id + "/anemia-assessment", patientWrite("PUT", { status }),
+  ));
+}
+
+export function listReferrals(id: string) {
+  return recordRequest<Referral[]>("/patients/" + id + "/referrals");
+}
+
+export function createReferral(id: string, facility: string, referred_on: string) {
+  return recordRequest<Referral>("/patients/" + id + "/referrals",
+    patientWrite("POST", { facility, referred_on }));
+}
+
+export function updateReferral(id: string, referralId: number, status: Referral["status"], outcome: string | null) {
+  return recordRequest<Referral>("/patients/" + id + "/referrals/" + referralId,
+    patientWrite("PUT", { status, outcome }));
+}
+
+export type DashboardSummary = {
+  registered_this_week: number;
+  weekly_hb_change: number | null;
+  high_risk_without_open_referral: number;
+};
+
+export function getDashboardSummary() {
+  return recordRequest<DashboardSummary>("/patients/dashboard-summary");
+}
+
+export type TeamReportRow = {
+  worker_id: number;
+  worker_name: string;
+  patients: number;
+  hb_recorded: number;
+  hb_pending: number;
+  anemia_confirmed: number;
+  not_assessed: number;
+  followups_due: number;
+  followups_overdue: number;
+  followups_completed: number;
+  referrals_referred: number;
+  referrals_attended: number;
+  referrals_closed: number;
+};
+
+export function getTeamReport(filters: Record<string, string>, signal: AbortSignal) {
+  const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== ""));
+  return recordRequest<TeamReportRow[]>("/patients/team-report?" + query.toString(), { signal });
 }

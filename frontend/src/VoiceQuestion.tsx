@@ -72,8 +72,7 @@ export function VoiceQuestion({ active, disabled, language, onTranscript }: {
   if (!active || !RecognitionAPI) return null;
   return <div className="ask-voice">
     <button className="btn subtle" type="button" disabled={disabled} aria-pressed={listening}
-      onClick={toggleVoice}>{listening ? "Stop listening" : "Use mic"}</button>
-    <small>Browser speech service. Keep patient details out.</small>
+      aria-describedby="question-guidance" onClick={toggleVoice}>{listening ? "Stop listening" : "Use mic"}</button>
     {error && <small role="alert">{error}</small>}
   </div>;
 }

@@ -12,11 +12,11 @@ from src.User.models import UserModel
 
 def read_records(db: Session, user: UserModel, question: str, worker: str | None = None):
     scope = patient_scope(user)
-    if question == "patient_count":
+    if question == "patient_count" and user.role != "super_admin":
         count = db.scalar(select(func.count()).select_from(PatientModel).where(scope))
         return {"count": count}
 
-    if question == "patients_by_worker":
+    if question in ("patient_count", "patients_by_worker"):
         if user.role != "super_admin":
             raise HTTPException(403, "Super Admin access required")
         rows = db.execute(
@@ -26,7 +26,11 @@ def read_records(db: Session, user: UserModel, question: str, worker: str | None
             .group_by(UserModel.id, UserModel.name)
             .order_by(UserModel.name, UserModel.id)
         )
-        return {"workers": [dict(row) for row in rows.mappings()]}
+        workers = [dict(row) for row in rows.mappings()]
+        result = {"workers": workers}
+        if question == "patient_count":
+            result["count"] = sum(worker["count"] for worker in workers)
+        return result
 
     if question == "worker_patients":
         if user.role != "super_admin":

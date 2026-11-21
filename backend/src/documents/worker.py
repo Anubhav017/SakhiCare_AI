@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.documents.ingestion import build_index
 from src.documents.models import RagChunk, RagDocument
 from src.utils.db import Session
-from src.utils.settings import settings
+from src.utils.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ def _renew(job: IndexJob) -> None:
 def _finish(job: IndexJob, chunks: list[tuple[int, str, list[float]]]) -> None:
     with Session.begin() as db:
         _apply_job_update(
-            db, job, status="ready", embedding_model=settings.EMBEDDING_MODEL,
+            db, job, status="ready", embedding_model=settings.embedding_identity,
             lease_token=None, indexing_error=None,
         )
         db.execute(delete(RagChunk).where(RagChunk.document_id == job.document_id))

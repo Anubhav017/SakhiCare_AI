@@ -1,3 +1,4 @@
+import { AdminReports } from "./AdminReports";
 import { useEffect, useRef, useState } from "react";
 import { listManagedAshas, type Account, type ManagedAsha } from "./AuthPage";
 import { AskGuidelines } from "./AskGuidelines";
@@ -37,7 +38,10 @@ const ASHA_PAGE_SIZE = 10;
 export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
   const [section, setSection] = useState(() => location.hash.slice(1));
   const detail = patientRoute(section);
-  const active = detail ? "patient" : section === "ask" || section === "profile" || section === "followups" ? section : "today";
+  const active = detail ? "patient" : section === "ask" || section === "profile" || section === "followups" || section === "workspace" || section === "reports" ? section : "today";
+  const showWorkspace = active === "workspace";
+  const showDirectory = active === "today" || showWorkspace;
+  const [workspaceView, setWorkspaceView] = useState<"roles" | "hierarchy">("roles");
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState("all");
   const [page, setPage] = useState(1);
@@ -56,11 +60,11 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
   const teamHeading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    if (active === "today" || active === "followups" || active === "patient") {
+    if (showDirectory || active === "followups" || active === "patient") {
       window.scrollTo(0, 0);
       teamHeading.current?.focus({ preventScroll: true });
     }
-  }, [active, section]);
+  }, [active, section, showDirectory]);
 
   useEffect(() => {
     let active = true;
@@ -145,6 +149,12 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
           <a href="#today" aria-current={active === "today" ? "page" : undefined}>
             <span aria-hidden="true">&#8962;</span> ASHA
           </a>
+          <a href="#workspace" aria-current={showWorkspace ? "page" : undefined}>
+            <span aria-hidden="true">&#9638;</span> Workspace
+          </a>
+          <a href="#reports" aria-current={active === "reports" ? "page" : undefined}>
+            <span aria-hidden="true">&#9636;</span> Reports
+          </a>
           <a href="#ask" aria-current={active === "ask" ? "page" : undefined}>
             <span aria-hidden="true">&#10022;</span> Ask
           </a>
@@ -158,15 +168,16 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
         <header className="topbar"><span>Admin workspace</span><span className="demo">Super Admin</span></header>
         <div id="view" className="admin-view">
           {logoutError && <p className="signup-error" role="alert">{logoutError}</p>}
+          {active === "reports" && !loading && !loadError && <AdminReports workers={workers} patients={patients} />}
           {active === "profile" && <ProfilePage account={account} backLabel="Back to ASHA" />}
           {active === "ask" && <AskGuidelines isAdmin={true} accountName={account.name} backLabel="Back to ASHA" onSessionExpired={onSessionExpired} />}
           {active === "followups" && <header className="page-head">
             <div><h1 ref={teamHeading} tabIndex={-1}>Follow-ups</h1><p>Scheduled visits for your ASHA team.</p></div>
           </header>}
-          {active === "today" && <header className="page-head">
-            <div><h1 ref={teamHeading} tabIndex={-1}>ASHA</h1><p>{account.name} &middot; Super Admin</p></div>
+          {showDirectory && <header className="page-head">
+            <div><h1 ref={teamHeading} tabIndex={-1}>{showWorkspace ? "Workspace" : "ASHA"}</h1>{!showWorkspace && <p>{account.name} &middot; Super Admin</p>}</div>
           </header>}
-          {(active === "today" || active === "followups" || active === "patient") && <>
+          {(showDirectory || active === "followups" || active === "patient" || active === "reports") && <>
             {loading && <p className="empty" role="status">Loading team and patients...</p>}
             {loadError && <div className="panel" role="alert">
               <p>Could not load the ASHA team and patients.</p>
@@ -197,6 +208,30 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
                 backTo={detail.fromFollowups ? "#followups" : "#today"}
                 backLabel={detail.fromFollowups ? "Back to follow-ups" : "Back to ASHA"} />
             : <p className="empty">Patient unavailable. <a href="#today">Back to ASHA</a></p>)}
+          {showWorkspace && !loading && !loadError && <>
+            <div className="asha-view-switch" role="group" aria-label="Workspace view">
+              <button className="btn subtle" type="button" aria-pressed={workspaceView === "roles"}
+                onClick={() => setWorkspaceView("roles")}>Roles</button>
+              <button className="btn subtle" type="button" aria-pressed={workspaceView === "hierarchy"}
+                onClick={() => setWorkspaceView("hierarchy")}>Hierarchy</button>
+            </div>
+            {workspaceView === "roles" ? <section className="panel workspace-roles" aria-label="Workspace roles">
+              <table>
+                <thead><tr><th scope="col">Role</th><th scope="col">People in this workspace</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">Super Admin</th><td>1</td></tr>
+                  <tr><th scope="row">ASHA worker</th><td>{workers.length}</td></tr>
+                </tbody>
+              </table>
+            </section> : <section className="panel asha-hierarchy" aria-label="Role hierarchy">
+              <h2>Role hierarchy</h2>
+              <ul>
+                <li><strong>Super Admin</strong><small>{account.name}</small>
+                  <ul><li><strong>ASHA workers</strong><small>{workers.length} reporting to this Super Admin</small></li></ul>
+                </li>
+              </ul>
+            </section>}
+          </>}
           {active === "today" && <>
             {!loading && !loadError && <>
               <div className="stats" aria-label="Team totals">
@@ -255,6 +290,9 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
             </>}
           </>}
         </div>
+        <footer className="admin-footer">
+          <button className="btn subtle" type="button" onClick={() => window.scrollTo(0, 0)}>Back to top</button>
+        </footer>
       </main>
     </div>
   );

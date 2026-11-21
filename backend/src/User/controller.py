@@ -8,7 +8,7 @@ from src.User.models import UserModel
 import jwt
 
 from datetime import datetime, timedelta
-from src.utils.settings import settings
+from src.utils.config import settings
 from pwdlib import PasswordHash
 
 password_hash = PasswordHash.recommended()

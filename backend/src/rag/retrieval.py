@@ -1,11 +1,12 @@
-from sqlalchemy import func, select
+from fastapi import HTTPException
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from src.User.models import UserModel
 from src.documents.models import RagChunk, RagDocument
 from src.utils.ai_client import embed
 from src.tasks.models import TaskModel
-from src.utils.settings import settings
+from src.utils.config import settings
 
 
 def pdf_context(
@@ -15,16 +16,28 @@ def pdf_context(
     document_scope = [
         RagDocument.user_id == user_id,
         RagDocument.status == "ready",
-        RagDocument.embedding_model == settings.EMBEDDING_MODEL,
     ]
     if guidelines_only:
-        document_scope.extend((
-            RagDocument.user_id.in_(select(UserModel.id).where(UserModel.role == "super_admin")),
-        ))
-        if db.query(RagDocument.id).filter(*document_scope).first() is None:
-            return "", []
+        document_scope.append(
+            RagDocument.user_id.in_(select(UserModel.id).where(UserModel.role == "super_admin"))
+        )
+    if document_id is not None:
+        document_scope.append(RagDocument.id == document_id)
+
+    ready_documents = db.query(RagDocument.id).filter(*document_scope)
+    active_model = RagDocument.embedding_model == settings.embedding_identity
+    if guidelines_only and ready_documents.filter(active_model).first() is None:
+        if ready_documents.first() is not None:
+            raise HTTPException(409, {
+                "code": "reindex_required",
+                "message": "Ask is waiting for guidelines to be reindexed with the configured embedding model. Contact your Super Admin.",
+            })
+        return "", []
+
     vector = embed([question])[0]
-    distance = RagChunk.embedding.cosine_distance(vector)
+    matching_dimensions = func.vector_dims(RagChunk.embedding) == len(vector)
+    # Guard the distance operation even if PostgreSQL reorders the WHERE clauses.
+    distance = case((matching_dimensions, RagChunk.embedding.cosine_distance(vector)))
     query = (
         db.query(
             RagChunk.id,
@@ -41,11 +54,10 @@ def pdf_context(
         .join(RagDocument, RagChunk.document_id == RagDocument.id)
         .filter(
             *document_scope,
-            func.vector_dims(RagChunk.embedding) == len(vector),
+            active_model,
+            matching_dimensions,
         )
     )
-    if document_id is not None:
-        query = query.filter(RagDocument.id == document_id)
 
     excerpts = []
     references = []

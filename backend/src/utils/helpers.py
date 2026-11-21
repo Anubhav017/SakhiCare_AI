@@ -1,6 +1,6 @@
 
 from fastapi import Request, status, Depends, HTTPException
-from src.utils.settings import settings
+from src.utils.config import settings
 
 from src.utils.db import get_db
 from src.User.models import UserModel

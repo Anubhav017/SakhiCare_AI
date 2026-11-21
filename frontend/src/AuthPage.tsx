@@ -72,6 +72,7 @@ function post(body: object): RequestInit {
 type Props = { mode: Mode; sessionExpired?: boolean; navigate: (path: string) => void; onLogin: (account: Account) => void };
 
 export function AuthPage({ mode, navigate, onLogin, sessionExpired }: Props) {
+  const [role, setRole] = useState<Account["role"]>("asha");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [createdUsername, setCreatedUsername] = useState("");
@@ -103,7 +104,7 @@ export function AuthPage({ mode, navigate, onLogin, sessionExpired }: Props) {
         setCreatedUsername(username);
       } else {
         const account = await request<Account>("/user/session", post({
-          username, password, remember: data.has("remember"),
+          username, password, role, remember: data.has("remember"),
         }), "Could not sign in. Please try again.");
         onLogin(account);
       }
@@ -115,8 +116,8 @@ export function AuthPage({ mode, navigate, onLogin, sessionExpired }: Props) {
   }
 
   return (
-    <main className="signup">
-      <div className="brand"><span className="mark" aria-hidden="true">✦</span><span>SakhiCare <b>AI</b><small>ASHA FIELD WORKSPACE</small></span></div>
+    <main className={signup ? "signup" : "signup mobile-signin"}>
+      <div className="brand"><span className="mark" aria-hidden="true">✦</span><span>SakhiCare <b>AI</b><small className="auth-workspace-label">ASHA FIELD WORKSPACE</small><small className="mobile-signin-subtitle">Anemia care for ASHA workers</small></span></div>
       <section className="panel signup-card">
         {createdUsername ? (
           <>
@@ -126,9 +127,18 @@ export function AuthPage({ mode, navigate, onLogin, sessionExpired }: Props) {
           </>
         ) : (
           <>
-            <h1>{signup ? "ASHA worker sign-up" : "Sign in to SakhiCare"}</h1>
+            <h1 className="auth-form-heading">{signup ? "ASHA worker sign-up" : "Sign in to SakhiCare"}</h1>
             {!signup && sessionExpired && <p role="status">Your session expired. Sign in to return to Ask.</p>}
             <form onSubmit={submit}>
+              {!signup && (
+                <fieldset className="login-role" disabled={saving}>
+                  <legend>Role</legend>
+                  <div className="login-role-options">
+                    <label><input type="radio" name="role" value="asha" checked={role === "asha"} onChange={() => { setRole("asha"); setError(""); }} /><span>ASHA Worker</span></label>
+                    <label><input type="radio" name="role" value="super_admin" checked={role === "super_admin"} onChange={() => { setRole("super_admin"); setError(""); }} /><span>Admin</span></label>
+                  </div>
+                </fieldset>
+              )}
               {signup && <>
                 <label>Full name<input name="name" autoComplete="name" required maxLength={100} /></label>
                 <label>Email<input name="email" type="email" autoComplete="email" required maxLength={254} /></label>

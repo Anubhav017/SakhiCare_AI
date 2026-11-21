@@ -29,9 +29,13 @@ services:
       ALGORITHM: HS256
       AUTO_CREATE_TABLES: "true"
       SESSION_COOKIE_SECURE: "false"
+      CHAT_PROVIDER: &chat-provider ${CHAT_PROVIDER:?Set CHAT_PROVIDER in backend/.env}
+      EMBEDDING_PROVIDER: &embedding-provider ${EMBEDDING_PROVIDER:?Set EMBEDDING_PROVIDER in backend/.env}
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-120}
       OLLAMA_BASE_URL: http://ollama:11434
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
-      CHAT_MODEL: ${CHAT_MODEL:-llama3.2:3b}
+      EMBEDDING_MODEL: &embedding-model ${EMBEDDING_MODEL:?Set EMBEDDING_MODEL in backend/.env}
+      CHAT_MODEL: &chat-model ${CHAT_MODEL:?Set CHAT_MODEL in backend/.env}
     volumes:
       - session_key:/run/sakhicare
     ports:
@@ -81,11 +85,16 @@ services:
   ollama-models:
     image: ollama/ollama:latest
     entrypoint: ["/bin/sh", "-ec"]
-    command: ['ollama pull "$$EMBEDDING_MODEL"; ollama pull "$$CHAT_MODEL"']
+    command:
+      - |
+        if [ "$$EMBEDDING_PROVIDER" = ollama ]; then ollama pull "$$EMBEDDING_MODEL"; fi
+        if [ "$$CHAT_PROVIDER" = ollama ]; then ollama pull "$$CHAT_MODEL"; fi
     environment:
       OLLAMA_HOST: http://ollama:11434
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
-      CHAT_MODEL: ${CHAT_MODEL:-llama3.2:3b}
+      CHAT_PROVIDER: *chat-provider
+      EMBEDDING_PROVIDER: *embedding-provider
+      EMBEDDING_MODEL: *embedding-model
+      CHAT_MODEL: *chat-model
     depends_on:
       ollama:
         condition: service_healthy

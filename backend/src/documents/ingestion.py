@@ -3,6 +3,7 @@ from collections.abc import Callable
 import io
 
 from fastapi import HTTPException
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 from sqlalchemy import func, update
 from sqlalchemy.dialects.postgresql import insert
@@ -12,27 +13,22 @@ from src.documents.models import RagChunk, RagDocument
 from src.documents.schemas import DocumentUploadResponse
 
 from src.utils.ai_client import embed
-from src.utils.settings import settings
-
-
-def _chunks(text: str):
-    text = " ".join(text.split())
-    size = settings.RAG_CHUNK_SIZE
-    step = size - settings.RAG_CHUNK_OVERLAP
-    for start in range(0, len(text), step):
-        yield text[start:start + size]
-        if start + size >= len(text):
-            break
+from src.utils.config import settings
 
 
 def _extract_chunks(content: bytes) -> list[tuple[int, str]]:
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=settings.RAG_CHUNK_SIZE,
+        chunk_overlap=settings.RAG_CHUNK_OVERLAP,
+        separators=["\n\n", "\n", " ", ""],
+    )
     pieces = []
     try:
         reader = PdfReader(io.BytesIO(content))
         if reader.is_encrypted:
             raise HTTPException(400, "Encrypted PDFs are unsupported")
         for page_number, page in enumerate(reader.pages, 1):
-            for chunk in _chunks(page.extract_text() or ""):
+            for chunk in splitter.split_text(page.extract_text() or ""):
                 if len(pieces) >= settings.RAG_MAX_CHUNKS:
                     raise HTTPException(
                         413, f"PDF has too many text chunks (limit {settings.RAG_MAX_CHUNKS})"
@@ -56,7 +52,7 @@ def build_index(content: bytes, renew_lease: Callable[[], None]):
         batch = pieces[start:start + batch_size]
         vectors.extend(embed([text for _, text in batch]))
     if len({len(vector) for vector in vectors}) != 1:
-        raise HTTPException(502, "Ollama returned embeddings of different dimensions")
+        raise HTTPException(502, "AI provider returned embeddings of different dimensions")
     return [(page, text, vector) for (page, text), vector in zip(pieces, vectors, strict=True)]
 
 
@@ -86,7 +82,7 @@ def enqueue_pdf(db: Session, user_id: int, filename: str, content: bytes) -> Doc
         )
         duplicate = True
         if document.status == "failed" or (
-            document.status == "ready" and document.embedding_model != settings.EMBEDDING_MODEL
+            document.status == "ready" and document.embedding_model != settings.embedding_identity
         ):
             document.pdf_data = content
             document.status = "pending"

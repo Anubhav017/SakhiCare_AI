@@ -1,44 +1,62 @@
-import json
 import logging
 import math
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from functools import lru_cache
 
+import httpx
 from fastapi import HTTPException
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.embeddings import Embeddings
 
-from src.utils.settings import settings
+from src.utils.config import AI_PROVIDERS, settings
+
 
 logger = logging.getLogger(__name__)
 
 
-def _request(endpoint: str, payload: dict) -> dict:
-    request = Request(
-        f"{str(settings.OLLAMA_BASE_URL).rstrip('/')}/api/{endpoint}",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+@lru_cache
+def _embedding_client() -> Embeddings:
+    factory = AI_PROVIDERS[settings.EMBEDDING_PROVIDER].embeddings
+    assert factory is not None
+    return factory(settings)
+
+
+@lru_cache
+def _chat_chain():
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "{system}"),
+        ("human", "{user}"),
+    ])
+    factory = AI_PROVIDERS[settings.CHAT_PROVIDER].chat
+    assert factory is not None
+    return prompt | factory(settings) | StrOutputParser()
+
+
+def _invoke(operation, argument, provider: str, model: str):
+    adapter = AI_PROVIDERS[provider]
     try:
-        with urlopen(request, timeout=settings.OLLAMA_TIMEOUT_SECONDS) as response:
-            result = json.load(response)
-    except HTTPError as exc:
-        logger.warning("Ollama %s returned HTTP %s", endpoint, exc.code)
-        if exc.code == 404:
-            raise HTTPException(503, f"Ollama could not find model {payload['model']}") from exc
-        raise HTTPException(502, "Ollama rejected the request") from exc
-    except (URLError, TimeoutError) as exc:
-        logger.warning("Ollama %s was unavailable (%s)", endpoint, type(exc).__name__)
-        raise HTTPException(503, "Could not reach Ollama") from exc
-    except (ValueError, OSError) as exc:
-        raise HTTPException(502, "Could not read the Ollama response") from exc
-    if not isinstance(result, dict):
-        raise HTTPException(502, "Unexpected Ollama response")
-    return result
+        return operation(argument)
+    except adapter.status_errors as exc:
+        logger.warning("%s returned HTTP %s", provider, exc.status_code)
+        if exc.status_code == 404:
+            raise HTTPException(503, {
+                "code": "model_unavailable",
+                "message": f"The configured {provider} model {model} is unavailable. Check the model name and provider access.",
+            }) from exc
+        if exc.status_code in (429, 503):
+            raise HTTPException(503, "AI provider is temporarily unavailable") from exc
+        raise HTTPException(502, "AI provider rejected the request") from exc
+    except (httpx.RequestError, ConnectionError, *adapter.connection_errors) as exc:
+        logger.warning("%s was unavailable (%s)", provider, type(exc).__name__)
+        raise HTTPException(503, "Could not reach the AI provider") from exc
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(502, "Could not read the AI provider response") from exc
 
 
 def embed(texts: list[str]) -> list[list[float]]:
-    result = _request("embed", {"model": settings.EMBEDDING_MODEL, "input": texts})
-    vectors = result.get("embeddings")
+    if not texts:
+        return []
+    vectors = _invoke(_embedding_client().embed_documents, texts, settings.EMBEDDING_PROVIDER, settings.EMBEDDING_MODEL)
     if (
         not isinstance(vectors, list)
         or len(vectors) != len(texts)
@@ -50,18 +68,10 @@ def embed(texts: list[str]) -> list[list[float]]:
         )
         or len({len(vector) for vector in vectors}) != 1
     ):
-        raise HTTPException(502, "Ollama returned invalid embeddings")
+        raise HTTPException(502, "AI provider returned invalid embeddings")
     return vectors
 
 
-def chat(messages: list[dict[str, str]]) -> str:
-    result = _request("chat", {
-        "model": settings.CHAT_MODEL,
-        "stream": False,
-        "options": {"temperature": 0},
-        "messages": messages,
-    })
-    message = result.get("message")
-    if not isinstance(message, dict) or not isinstance(message.get("content"), str):
-        raise HTTPException(502, "Ollama returned an invalid chat response")
-    return message["content"] or "No answer generated"
+def chat(*, system: str, user: str) -> str:
+    response = _invoke(_chat_chain().invoke, {"system": system, "user": user}, settings.CHAT_PROVIDER, settings.CHAT_MODEL)
+    return response.strip() or "No answer generated"

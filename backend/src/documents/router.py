@@ -7,7 +7,7 @@ from src.documents.schemas import DocumentDetail, DocumentSummary, DocumentUploa
 from src.User.models import UserModel
 from src.utils.db import get_db
 from src.utils.helpers import is_authenticated
-from src.utils.settings import settings
+from src.utils.config import settings
 
 documents_router = APIRouter(prefix="/api", tags=["Documents"])
 
@@ -88,7 +88,7 @@ def update_guideline_metadata(
     user: UserModel = Depends(is_authenticated),
 ):
     document = _owned_guideline(document_id, user, db)
-    if document.status != "ready" or document.embedding_model != settings.EMBEDDING_MODEL:
+    if document.status != "ready" or document.embedding_model != settings.embedding_identity:
         raise HTTPException(409, "The guideline must be indexed with the current embedding model first")
     document.guideline_title = body.title
     document.guideline_version = body.version

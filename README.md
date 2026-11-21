@@ -6,10 +6,10 @@ The FastAPI backend currently provides JWT authentication, per-user tasks, and q
 
 ## Run with Docker Compose
 
-Start Docker Desktop, then run this from the repository root:
+Create `backend/.env` with the model settings shown below. Start Docker Desktop, then run this from the repository root:
 
 ```powershell
-docker compose up --build -d
+docker compose --env-file backend/.env up --build -d
 ```
 
 Open http://localhost:5173/register for the frontend and http://127.0.0.1:8000/docs for the API. Compose runs PostgreSQL with pgvector, FastAPI, the web frontend, Ollama and the PDF indexing worker. The first start downloads the Ollama models. Use `docker compose logs -f ollama-models` to see download progress. The web app is available independently of model download completion.
@@ -45,9 +45,71 @@ npm run dev
 
 Registration and sign-in call FastAPI through Vite. The Patients screen loads and registers patients through FastAPI. PostgreSQL stores each patient under the signed-in ASHA account. Select a patient name to open their record, or open Follow-ups from the workspace navigation. ASHAs can schedule and complete follow-ups for their patients. Super admins can view follow-ups for their assigned team. Follow-ups are stored in PostgreSQL. Measured Hb readings are stored in the patient timeline. The session cookie contains only a signed session token. Remember me keeps it for 24 hours by default (see REMEMBER_ME_HOURS). Use SESSION_COOKIE_SECURE=false only for local HTTP and SESSION_COOKIE_SECURE=true with HTTPS in deployed environments.
 
+## Android emulator setup (Windows)
+
+SakhiCare's Android development preview uses Capacitor and the running web app. The Android project is in `frontend/android`.
+
+### 1. Install Android tools
+
+- Install [Android Studio](https://developer.android.com/studio/install) and finish the Setup Wizard.
+- In **SDK Manager**, install **Android SDK Platform 36**, **Android SDK Platform-Tools**, **Android Emulator**, and a system image for your virtual device.
+- In **Device Manager**, [create and start an Android Virtual Device](https://developer.android.com/studio/run/managing-avds). Wait for the Android home screen.
+
+### 2. Start SakhiCare on the host
+
+Use [Docker Compose](#run-with-docker-compose), or start the [backend](#run-locally) and [web frontend](#run-the-web-prototype) in separate terminals. Confirm the [web login](http://localhost:5173/login) loads on Windows. The emulator uses `10.0.2.2` to reach the Windows host and uses the same backend and database as the web app.
+
+### 3. Build and run
+
+From the repository root in a new PowerShell terminal:
+
+```powershell
+Set-Location frontend
+$env:ANDROID_HOME = "$env:USERPROFILE\AppData\Local\Android\Sdk"
+$env:SAKHICARE_ANDROID_URL = "http://10.0.2.2:5173"
+npm.cmd ci
+npm.cmd run android:run
+```
+
+If the SDK uses a different directory, set `ANDROID_HOME` to the **Android SDK Location** shown in SDK Manager. If the frontend uses a different port, update `SAKHICARE_ANDROID_URL` to match. Keep the host services running while you test.
+
+To launch from Android Studio, run `npm.cmd run android:sync` and `npm.cmd run android:open` in the same terminal, then select the virtual device and click **Run**.
+
+### Troubleshooting
+
+| Error | What to check |
+| --- | --- |
+| `npm` or `npm.cmd` is not recognized | Open a new terminal after installing Node.js. If Node is installed in the standard Windows location, run `$env:Path = "C:\Program Files\nodejs;$env:Path"` and retry. |
+| `ERR_SDK_NOT_FOUND` | Install the SDK in Android Studio. Set `ANDROID_HOME` to its actual location before running Capacitor. |
+| No Android target found | Start the virtual device and run `& "$env:ANDROID_HOME\platform-tools\adb.exe" devices`. The emulator should appear as `device`. |
+| The app opens but sign-in cannot reach the API | Check the frontend URL on Windows and confirm FastAPI is running. Verify the emulator URL uses `10.0.2.2` and the correct frontend port. |
+
+The local HTTP rule applies to the Android debug build. A release build needs its own API and deployment configuration.
+
 ## RAG configuration
 
-Ollama uses the same default models as the separate rag_app repo. For a fresh setup, copy backend/.env.example to backend/.env and fill in the database credentials and JWT secret. For an existing setup, add only the variables you want to override. The example lists defaults for Ollama, upload size, chunking, batching, and retrieval. Restart the application after changing environment settings.
+Set `CHAT_PROVIDER` and `EMBEDDING_PROVIDER` independently in `backend/.env`. Set each to `ollama` for local Ollama, or set either to `openai`, set the corresponding `CHAT_MODEL` or `EMBEDDING_MODEL` to a model available on your OpenAI account, and set `MODEL_API_KEY` in that same backend environment. With Docker, pass `--env-file backend/.env` when starting Compose. Restart the API and worker after switching.
+
+Changing chat alone keeps existing embeddings. Changing the embedding provider or model requires re-uploading the PDFs to reindex them. OpenAI chat sends the question and retrieved excerpts to OpenAI. OpenAI embeddings send the question and document text used for indexing. Use public guidelines with hosted providers and keep patient details out of Ask Guidelines.
+
+
+For a fresh manual setup, create `backend/.env` directly with these settings. Replace both password placeholders with the same password and use a unique random secret. URL-encode the password in `DB_CONNECTION` if it contains reserved URL characters.
+
+```dotenv
+POSTGRES_PASSWORD=replace-me
+DB_CONNECTION=postgresql+psycopg://postgres:replace-me@127.0.0.1:5433/sakhicare
+SECRET_KEY=replace-with-a-long-random-secret
+ALGORITHM=HS256
+AUTO_CREATE_TABLES=true
+SESSION_COOKIE_SECURE=false
+CHAT_PROVIDER=ollama
+CHAT_MODEL=llama3.2:3b
+EMBEDDING_PROVIDER=ollama
+EMBEDDING_MODEL=nomic-embed-text
+MODEL_API_KEY=
+```
+
+The frontend defaults to the local API on port 8000. For a different API address, set `BACKEND_URL` in `frontend/.env`.
 
 If a model is missing, run `ollama pull nomic-embed-text` or `ollama pull llama3.2:3b`.
 

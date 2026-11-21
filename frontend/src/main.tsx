@@ -2,20 +2,20 @@ import "@fontsource-variable/noto-sans/wght.css";
 import "@fontsource-variable/noto-sans-devanagari/wght.css";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
-import { saveScreening, dateKey, listPatients, listFollowups, scheduleFollowup, completeFollowup, patientDetails, registerPatient, type Records, type Followup } from "./records";
+import { getDashboardSummary, type DashboardSummary, saveScreening, dateKey, listPatients, listFollowups, scheduleFollowup, completeFollowup, patientDetails, registerPatient, type Records, type Followup, type ScreeningRisk } from "./records";
 import { AuthPage, restoreSession, signOut, type Account } from "./AuthPage";
 import { AdminDashboard } from "./AdminDashboard";
 import { AskGuidelines } from "./AskGuidelines";
 import { FollowupList, PatientDetail, followupStatus, patientRoute } from "./PatientWorkspace";
 import { AccountMenu, ProfilePage } from "./AccountMenu";
-import { useWorkspaceGreeting } from "./workspaceGreeting";
+import { PatientReportUpload } from "./PatientReportUpload";
 import "./styles.css";
 
 const tabs = [
-  { id: "today", label: "Today", icon: "⌂" },
-  { id: "ask", label: "Ask", icon: "✦" },
-  { id: "patients", label: "Patients", icon: "◎" },
-  { id: "followups", label: "Follow-ups", icon: "✓" },
+  { id: "today", label: "Home", icon: "\u2302" },
+  { id: "patients", label: "Patients", icon: "\u25ce" },
+  { id: "upload", label: "Upload", icon: "\u21e7" },
+  { id: "ask", label: "Ask AI", icon: "\u2726" },
 ] as const;
 
 function FollowupNotifications({ due, patients, today, loading, failed }: {
@@ -70,6 +70,8 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
   const [editor, setEditor] = useState<Editor | null>(null);
   const [testPending, setTestPending] = useState(false);
   const [search, setSearch] = useState("");
+  const [screeningFilter, setScreeningFilter] = useState("all");
+  const [patientPage, setPatientPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("All");
   const [notice, setNotice] = useState("");
   const [signingOut, setSigningOut] = useState(false);
@@ -113,15 +115,28 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
 
   const detail = patientRoute(section);
   const selectedPatient = detail && records.patients.find(item => item.id === detail.id);
-  const active = detail ? "patient" : section === "profile" ? "profile" : tabs.find(tab => tab.id === section)?.id ?? "today";
+  const active = detail ? "patient" : section === "profile" || section === "followups" ? section : tabs.find(tab => tab.id === section)?.id ?? "today";
   useEffect(() => {
     if (active === "today" || active === "patients" || active === "followups") {
       window.scrollTo(0, 0);
       document.getElementById("field-page-heading")?.focus({ preventScroll: true });
     }
   }, [active]);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  useEffect(() => {
+    if (active !== "today" || loadingPatients || patientError) return;
+    let current = true;
+    setSummary(null);
+    getDashboardSummary().then(result => {
+      if (current) setSummary(result);
+    }).catch(() => {});
+    return () => { current = false; };
+  }, [active, loadingPatients, patientError, records.patients]);
+
+  const anemiaCount = records.patients.filter(item => item.anemia_status === "confirmed").length;
+  const weeklyHbChange = summary?.weekly_hb_change;
+
   const today = dateKey();
-  const greeting = useWorkspaceGreeting(account.name);
   const patient = editor && "patientId" in editor ? records.patients.find(item => item.id === editor.patientId) : undefined;
   const due = records.followups.filter(item => !item.done && item.date <= today);
   const sorted = [...records.followups].sort((a, b) => a.date.localeCompare(b.date));
@@ -129,7 +144,16 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
   const filteredFollowups = sorted.filter(item =>
     statusFilter === "All" || followupStatus(item, dateKey()) === statusFilter);
 
-  const visiblePatients = records.patients.filter(item => `${item.name} ${item.village ?? ""}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const patientQuery = search.trim().toLowerCase();
+  const matchingPatients = records.patients.filter(item => {
+    const status = item.screening === null ? "none" : item.screening.hb === null ? "pending" : "measured";
+    return (screeningFilter === "all" || screeningFilter === status) &&
+      `${item.name} ${item.village ?? ""}`.toLowerCase().includes(patientQuery);
+  });
+  const pageSize = 8;
+  const patientPageCount = Math.max(1, Math.ceil(matchingPatients.length / pageSize));
+  const currentPatientPage = Math.min(patientPage, patientPageCount);
+  const visiblePatients = matchingPatients.slice((currentPatientPage - 1) * pageSize, currentPatientPage * pageSize);
 
   function openEditor(next: Editor) {
     const previous = next.kind === "screening" && records.patients.find(item => item.id === next.patientId)?.screening;
@@ -174,6 +198,7 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
         const screening = await saveScreening(editor.patientId, {
           date: value("date"), hb: testPending ? null : Number(value("hb")),
           method: testPending ? "" : value("method"),
+          risk: (value("risk") || null) as ScreeningRisk | null,
         });
         setRecords(current => ({
           ...current,
@@ -230,69 +255,138 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
     }
   }
 
+  const measuredHb = records.patients.flatMap(({ screening }) =>
+    screening?.hb == null ? [] : [screening.hb],
+  );
+  const averageHb = loadingPatients || patientError || !measuredHb.length
+    ? null
+    : measuredHb.reduce((sum, hb) => sum + hb, 0) / measuredHb.length;
+
   return (
     <>
-      <div className="shell">
+      <div className="shell field-shell">
         <aside className="sidebar">
           <a className="brand" href="#today"><span className="mark" aria-hidden="true">✦</span><span>SakhiCare <b>AI</b><small>ASHA FIELD WORKSPACE</small></span></a>
-          <nav aria-label="Workspace">{tabs.map(tab => (
-            <a key={tab.id} href={`#${tab.id}`} aria-current={active === tab.id ? "page" : undefined}><span aria-hidden="true">{tab.icon}</span>{tab.label}</a>
+          <nav className="field-navigation" aria-label="Workspace">{tabs.map(tab => (
+            <a key={tab.id} href={`#${tab.id}`} aria-current={(active === tab.id || (active === "patient" && tab.id === "patients")) ? "page" : undefined}><span aria-hidden="true">{tab.icon}</span>{tab.label}</a>
           ))}</nav>
-          <AccountMenu account={account} signingOut={signingOut} onLogout={logout} />
-        </aside>
-        <main>
-          <header className="topbar">
-            <span>Field workspace</span>
+          <div className="field-header-actions">
             <FollowupNotifications due={due} patients={records.patients} today={today}
               loading={loadingPatients} failed={Boolean(patientError)} />
-          </header>
+            <AccountMenu account={account} signingOut={signingOut} onLogout={logout} />
+          </div>
+        </aside>
+        <main>
           <div id="view">
             {loadingPatients && <p className="empty" role="status">Loading patients and follow-ups...</p>}
             {patientError && <div className="panel" role="alert">
               <p>{patientError}</p><button className="btn subtle" onClick={retryPatients}>Retry</button>
             </div>}
             {active === "today" && <>
-              <section className="hero">
-                <div><span className="eyebrow">{greeting.date}</span><h1 id="field-page-heading" tabIndex={-1}>{greeting.title}</h1><p>Here’s what’s due in your field workspace.</p></div>
-                <button className="btn light" disabled={loadingPatients || Boolean(patientError)} onClick={() => openEditor({ kind: "patient" })}>＋ Register patient</button>
-              </section>
-              <div className="ask-entry">
-                <div><h2>Guidelines</h2><p>Look up approved guidance for a field visit.</p></div>
-                <a className="btn subtle" href="#ask">Ask SakhiCare</a>
+              <header className="page-head field-dashboard-head">
+                <div><h1 id="field-page-heading" tabIndex={-1}>Dashboard</h1><p>Anemia surveillance overview</p></div>
+                <div className="actions field-dashboard-actions">
+                  <a className="btn subtle" href="#ask">Ask SakhiCare</a>
+                  <button className="btn" disabled={loadingPatients || Boolean(patientError)} onClick={() => openEditor({ kind: "patient" })}>+ Register patient</button>
+                </div>
+              </header>
+              <div className="stats field-summary" aria-label="Dashboard totals">
+                <a className="stat" href="#patients">
+                  <span>Total Patients <b aria-hidden="true">&#9678;</b></span>
+                  <strong>{loadingPatients || patientError ? "—" : records.patients.length}</strong>
+                  {summary && <small>+{summary.registered_this_week} this week</small>}
+                </a>
+                <div className="stat">
+                  <span>Anemic Cases <b aria-hidden="true">&#9432;</b></span>
+                  <strong>{loadingPatients || patientError ? "—" : anemiaCount}</strong>
+                  {!loadingPatients && !patientError && records.patients.length > 0 && <small>
+                    {Math.round(100 * anemiaCount / records.patients.length)}% of total
+                    {" · "}{records.patients.filter(item => !item.anemia_status).length} not assessed
+                  </small>}
+                </div>
+                <div className="stat">
+                  <span>Avg Haemoglobin <b aria-hidden="true">&#9612;</b></span>
+                  <strong>{averageHb === null ? "—" : averageHb.toFixed(1) + " g/dL"}</strong>
+                  <small>{weeklyHbChange == null ? "No weekly comparison" :
+                    (weeklyHbChange > 0 ? "+" : "") + weeklyHbChange.toFixed(1) + " g/dL vs last week"}</small>
+                </div>
+                <div className="stat">
+                  <span>High Risk <b aria-hidden="true">&#9888;</b></span>
+                  <strong>{loadingPatients || patientError || !records.patients.some(item => item.screening?.risk) ? "—" : records.patients.filter(item => item.screening?.risk === "high").length}</strong><small>{summary && summary.high_risk_without_open_referral > 0 ?
+                    summary.high_risk_without_open_referral + " without open referral" : "Recorded risk"}</small>
+                </div>
               </div>
-              <div className="stats" aria-label="Dashboard totals">
-                <a className="stat" href="#patients"><strong>{records.patients.length}</strong><span>Patients</span></a>
-                <a className="stat" href="#patients"><strong>{records.patients.filter(item => item.screening?.hb === null).length}</strong><span>Hb tests pending</span></a>
-                <a className="stat" href="#followups"><strong>{due.length}</strong><span>Follow-ups due</span></a>
-              </div>
-              <section className="panel"><header className="section-head"><h2>Due today and overdue</h2><a className="btn subtle" href="#followups">All follow-ups</a></header><FollowupList items={due} patients={records.patients} empty="No follow-ups due."
+              <section className="panel"><header className="section-head"><h2>Due today and overdue</h2></header><FollowupList items={due} patients={records.patients} empty="No follow-ups due."
                 onToggle={toggleFollowup} busyId={updatingFollowup} /></section>
             </>}
-            {active === "profile" && <ProfilePage account={account} backLabel="Back to Today" />}
-            {active === "ask" && <AskGuidelines isAdmin={false} accountName={account.name} backLabel="Back to Today" onSessionExpired={onSessionExpired} />}
+            {active === "upload" && !loadingPatients && !patientError && <PatientReportUpload patients={records.patients} />}
+            {active === "profile" && <ProfilePage account={account} backLabel="Back to Home" />}
+            {active === "ask" && <AskGuidelines isAdmin={false} accountName={account.name} backLabel="Back to Home" onSessionExpired={onSessionExpired} />}
             {active === "patients" && <>
               <header className="page-head"><div><h1 id="field-page-heading" tabIndex={-1}>Patients</h1><p>Register patients and record measured Hb results.</p></div><button className="btn" disabled={loadingPatients || Boolean(patientError)} onClick={() => openEditor({ kind: "patient" })}>＋ Register patient</button></header>
-              <section className="panel" aria-label="Patient list">
-                <input className="search" aria-label="Search by patient or village" placeholder="Search by patient or village" value={search} onChange={event => setSearch(event.target.value)} />
-                {visiblePatients.map(item => (
-                  <article className="row" key={item.id}>
-                    <div className="left"><span className="avatar" aria-hidden="true">{initials(item.name)}</span><div><a className="patient-link" href={`#patient/${item.id}`}>{item.name}</a><small>{patientDetails(item)}</small></div></div>
-                    <div className="actions">
-                      <span className={`pill ${item.screening?.hb === null ? "pending" : item.screening ? "done" : ""}`}>
-                        {item.screening?.hb === null ? "Hb test pending" : item.screening ? `Hb ${item.screening.hb} g/dL` : "No screening yet"}
-                      </span>
-                      <button className="btn subtle" onClick={() => openEditor({ kind: "screening", patientId: item.id })}>Record Hb</button>
-                      <button className="btn subtle" onClick={() => openEditor({ kind: "followup", patientId: item.id })}>Follow-up</button>
-                    </div>
-                  </article>
-                ))}
-                {!loadingPatients && !patientError && !visiblePatients.length && <p className="empty">
-                  {search.trim() ? "No patients match this search." : "No patients assigned yet."}
+              <section aria-label="Patient list">
+                <div className="patient-directory-controls">
+                  <label>Search patients
+                    <input type="search" placeholder="Name or village" value={search} onChange={event => {
+                      setSearch(event.target.value);
+                      setPatientPage(1);
+                    }} />
+                  </label>
+                  <label>Hb screening
+                    <select value={screeningFilter} onChange={event => {
+                      setScreeningFilter(event.target.value);
+                      setPatientPage(1);
+                    }}>
+                      <option value="all">All statuses</option>
+                      <option value="pending">Test pending</option>
+                      <option value="measured">Result recorded</option>
+                      <option value="none">No screening yet</option>
+                    </select>
+                  </label>
+                </div>
+                {!loadingPatients && !patientError && !matchingPatients.length && <p className="panel empty" role="status">
+                  {records.patients.length ? "No patients match these filters." : "No patients assigned yet."}
                 </p>}
+                <div className="patient-card-grid">
+                  {visiblePatients.map(item => (
+                    <article className="panel patient-directory-card" key={item.id}>
+                      <a className="patient-card-link" href={"#patient/" + item.id}>
+                        <span className="avatar" aria-hidden="true">{initials(item.name)}</span>
+                        <div><h2>{item.name}</h2>
+                          {patientDetails(item) && <small>{patientDetails(item)}</small>}
+                        </div>
+                      </a>
+                      <div className="patient-card-screening">
+                        <span className={`pill ${item.screening?.hb === null ? "pending" : ""}`}>
+                          {item.screening?.hb === null ? "Hb test pending" : item.screening ? `Hb ${item.screening.hb} g/dL` : "No screening yet"}
+                        </span>
+                        {item.screening && <div className="patient-screening-meta">
+                          {item.screening.risk && <span className="pill patient-risk">{item.screening.risk} risk</span>}
+                          <time dateTime={item.screening.date}>{item.screening.date}</time>
+                        </div>}
+                      </div>
+                      <div className="actions">
+                        <button className="btn subtle" onClick={() => openEditor({ kind: "screening", patientId: item.id })}>Record Hb</button>
+                        <button className="btn subtle" onClick={() => openEditor({ kind: "followup", patientId: item.id })}>Follow-up</button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                {patientPageCount > 1 && <nav className="asha-directory-pagination" aria-label="Patient list pages">
+                  <button className="btn subtle" type="button" disabled={currentPatientPage === 1}
+                    onClick={() => setPatientPage(currentPatientPage - 1)}>Previous</button>
+                  <span role="status">Page {currentPatientPage} of {patientPageCount}</span>
+                  <button className="btn subtle" type="button" disabled={currentPatientPage === patientPageCount}
+                    onClick={() => setPatientPage(currentPatientPage + 1)}>Next</button>
+                </nav>}
               </section>
             </>}
             {active === "patient" && detail && (selectedPatient ? <PatientDetail
-              patient={selectedPatient} followups={sorted} backTo={detail.fromFollowups ? "#followups" : "#patients"}
+              patient={selectedPatient} followups={sorted}
+              onPatientChange={patient => setRecords(current => ({
+                ...current,
+                patients: current.patients.map(item => item.id === patient.id ? patient : item),
+              }))} backTo={detail.fromFollowups ? "#followups" : "#patients"}
               backLabel={detail.fromFollowups ? "Back to Follow-ups" : "Back to Patients"}
               onScreen={() => openEditor({ kind: "screening", patientId: selectedPatient.id })}
               onSchedule={() => openEditor({ kind: "followup", patientId: selectedPatient.id })}
@@ -332,6 +426,14 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
             </>}
             {editor.kind === "screening" && <>
               <label>Test status<select value={testPending ? "pending" : "recorded"} onChange={event => setTestPending(event.target.value === "pending")} autoFocus><option value="recorded">Measured Hb</option><option value="pending">Hb test pending</option></select></label>
+              <label>Risk level
+                <select name="risk" defaultValue={patient?.screening?.risk ?? ""}>
+                  <option value="">Not assessed</option>
+                  <option value="low">Low</option>
+                  <option value="moderate">Moderate</option>
+                  <option value="high">High</option>
+                </select>
+              </label>
               <label>{testPending ? "Date recorded" : "Test date"}<input name="date" type="date" required max={today} defaultValue={patient?.screening?.date ?? today} /></label>
               {!testPending && <>
                 <label>Hemoglobin (g/dL)<input name="hb" type="number" inputMode="decimal" required min="0.1" step="0.1" defaultValue={patient?.screening?.hb ?? ""} /></label>

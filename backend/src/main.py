@@ -11,7 +11,7 @@ from src.patients.router import patients_router
 
 from src.tasks.router import task_routers
 from src.utils.db import initialize_tables
-from src.utils.settings import settings
+from src.utils.config import settings
 
 
 @asynccontextmanager
@@ -32,8 +32,3 @@ app.include_router(patients_router)
 app.include_router(followups_router)
 app.include_router(documents_router)
 app.include_router(ask_router)
-
-
-@app.get("/")
-def home():
-    return {"message": "Hello, World!"}

@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from datetime import date
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from src.User.browser_session import get_session, require_session_header
+from src.User.models import UserModel
 from src.patients import controller
-from src.patients.Schema import HbReadingSchema, PatientCreateSchema, PatientResponseSchema, ScreeningSchema
+from src.patients.Schema import AnemiaAssessment, ReferralCreate, ReferralResponse, ReferralUpdate, HbReadingSchema, PatientCreateSchema, PatientResponseSchema, ScreeningSchema
 from src.utils.db import get_db
 
 patients_router = APIRouter(prefix="/patients", tags=["Patients"])
@@ -28,6 +31,27 @@ def create_patient(
     if asha.role != "asha":
         raise HTTPException(403, "Only ASHA workers can register patients")
     return controller.create_patient(db, asha.id, body)
+
+
+@patients_router.get("/dashboard-summary")
+def read_dashboard_summary(request: Request, response: Response, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "private, no-store"
+    return controller.dashboard_summary(db, get_session(request, db))
+
+
+@patients_router.get("/team-report")
+def read_team_report(
+    request: Request, response: Response, db: Session = Depends(get_db),
+    start: date | None = None, end: date | None = None,
+    worker_id: int | None = None, village: str | None = None,
+):
+    user = get_session(request, db)
+    if user.role != "super_admin":
+        raise HTTPException(403, "Only Super Admin can view team reports")
+    if start is not None and end is not None and start > end:
+        raise HTTPException(422, "Start date must be on or before end date")
+    response.headers["Cache-Control"] = "private, no-store"
+    return controller.team_report(db, user, start, end, worker_id, village)
 
 
 @patients_router.get("/{patient_id}", response_model=PatientResponseSchema)
@@ -57,3 +81,67 @@ def screening_history(patient_id: int, request: Request, response: Response, db:
     user = get_session(request, db)
     response.headers["Cache-Control"] = "private, no-store"
     return controller.list_hb_readings(db, user, patient_id)
+
+
+MAX_REPORT_BYTES = 10 * 1024 * 1024
+
+
+@patients_router.post(
+    "/{patient_id}/reports", status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_session_header)],
+)
+def upload_patient_report(
+    patient_id: int, request: Request, response: Response,
+    file: UploadFile = File(...), db: Session = Depends(get_db),
+):
+    user = get_session(request, db)
+    if user.role != "asha":
+        raise HTTPException(403, "Only ASHA workers can upload patient reports")
+    patient = controller.get_patient(db, user, patient_id)
+    filename = (file.filename or "").replace(chr(92), "/").rsplit("/", 1)[-1]
+    if not filename.lower().endswith(".pdf") or len(filename) > 255 or not filename.isprintable():
+        raise HTTPException(400, "Choose a PDF with a valid filename")
+    pdf = file.file.read(MAX_REPORT_BYTES + 1)
+    if len(pdf) > MAX_REPORT_BYTES:
+        raise HTTPException(413, "PDFs must be 10 MB or smaller")
+    if not pdf.startswith(b"%PDF-"):
+        raise HTTPException(400, "Choose a valid PDF file")
+    response.headers["Cache-Control"] = "private, no-store"
+    return {"id": controller.save_patient_report(db, patient, filename, pdf)}
+
+
+def require_asha_session(request: Request, db: Session) -> UserModel:
+    user = get_session(request, db)
+    if user.role != "asha":
+        raise HTTPException(403, "Only ASHA workers can update patient assessments and referrals")
+    return user
+
+
+@patients_router.put("/{patient_id}/anemia-assessment", response_model=PatientResponseSchema,
+                     dependencies=[Depends(require_session_header)])
+def update_anemia_assessment(patient_id: int, body: AnemiaAssessment, request: Request,
+                             response: Response, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "private, no-store"
+    return controller.record_anemia_assessment(db, require_asha_session(request, db), patient_id, body)
+
+
+@patients_router.get("/{patient_id}/referrals", response_model=list[ReferralResponse])
+def read_referrals(patient_id: int, request: Request, response: Response, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "private, no-store"
+    return controller.list_referrals(db, get_session(request, db), patient_id)
+
+
+@patients_router.post("/{patient_id}/referrals", response_model=ReferralResponse, status_code=201,
+                      dependencies=[Depends(require_session_header)])
+def add_referral(patient_id: int, body: ReferralCreate, request: Request,
+                 response: Response, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "private, no-store"
+    return controller.create_referral(db, require_asha_session(request, db), patient_id, body)
+
+
+@patients_router.put("/{patient_id}/referrals/{referral_id}", response_model=ReferralResponse,
+                     dependencies=[Depends(require_session_header)])
+def change_referral(patient_id: int, referral_id: int, body: ReferralUpdate, request: Request,
+                    response: Response, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "private, no-store"
+    return controller.update_referral(db, require_asha_session(request, db), patient_id, referral_id, body)

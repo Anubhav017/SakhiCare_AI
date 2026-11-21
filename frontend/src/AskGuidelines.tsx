@@ -1,6 +1,6 @@
 import { VoiceQuestion } from "./VoiceQuestion";
 import { AskRecords } from "./AskRecords";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useWorkspaceGreeting } from "./workspaceGreeting";
 
 type Language = "hi" | "en";
@@ -48,21 +48,24 @@ type AskProps = {
 export function AskGuidelines(props: AskProps) {
   const [mode, setMode] = useState<"guidelines" | "records">("guidelines");
 
+  const sourceControl = (
+    <select className="ask-source-select" aria-label="Answer source" value={mode}
+      onChange={event => setMode(event.target.value === "records" ? "records" : "guidelines")}>
+      <option value="guidelines">Guidelines</option>
+      <option value="records">Records</option>
+    </select>
+  );
+
   return <>
-    <div className="ask-mode" role="group" aria-label="Ask SakhiCare source">
-      <button className="btn subtle" type="button" aria-pressed={mode === "guidelines"}
-        onClick={() => setMode("guidelines")}>Ask guidelines</button>
-      <button className="btn subtle" type="button" aria-pressed={mode === "records"}
-        onClick={() => setMode("records")}>Ask records</button>
-    </div>
     <div hidden={mode !== "guidelines"}>
-      <GuidelineChat {...props} active={mode === "guidelines"} />
+      <GuidelineChat {...props} active={mode === "guidelines"} sourceControl={sourceControl} />
     </div>
-    {mode === "records" && <AskRecords {...props} />}
+    {mode === "records" && <AskRecords {...props} sourceControl={sourceControl} />}
   </>;
 }
 
-function GuidelineChat({ accountName, backLabel, onSessionExpired, active }: AskProps & { active: boolean }) {
+function GuidelineChat({ accountName, backLabel, onSessionExpired, active, sourceControl, isAdmin }:
+  AskProps & { active: boolean; sourceControl: ReactNode }) {
   const greeting = useWorkspaceGreeting(accountName);
   const heading = useRef<HTMLHeadingElement>(null);
   const request = useRef<AbortController | null>(null);
@@ -122,7 +125,17 @@ function GuidelineChat({ accountName, backLabel, onSessionExpired, active }: Ask
       if (response.status === 401) {
         onSessionExpired();
       } else if (!response.ok) {
-        setError("Guideline search is unavailable. Please try again.");
+        const payload = await response.json().catch(() => null);
+        if (!controller.signal.aborted) {
+          const code = payload?.detail?.code;
+          if (code === "reindex_required") {
+            setError("Guidelines need to be reindexed after an embedding model change. Contact your Super Admin.");
+          } else if (code === "model_unavailable") {
+            setError("The configured AI model is unavailable. Ask your Super Admin to check the model settings.");
+          } else {
+            setError("Guideline search is unavailable. Please try again.");
+          }
+        }
       } else {
         const reply = await response.json() as Answer;
         setSuggestionIndex(0);
@@ -160,7 +173,7 @@ function GuidelineChat({ accountName, backLabel, onSessionExpired, active }: Ask
   );
 
   return (
-    <section className={hasConversation ? "ask-workspace ask-workspace-chat" : "ask-workspace"} aria-labelledby="ask-title">
+    <section className={hasConversation ? "ask-workspace ask-workspace-chat" : "ask-workspace"} data-ask-chat={!isAdmin ? "field" : undefined} aria-label="Ask SakhiCare">
       <header className="ask-heading">
         <div className="ask-heading-actions">
           <a className="ask-back" href="#today">
@@ -179,6 +192,13 @@ function GuidelineChat({ accountName, backLabel, onSessionExpired, active }: Ask
       </header>
       <div className="ask-thread" ref={thread} role="region" aria-label="Conversation"
         tabIndex={hasConversation ? 0 : undefined}>
+        {!isAdmin && !hasConversation && (
+          <div className="ask-field-empty">
+            <span aria-hidden="true">&#9993;</span>
+            <h2>Ask SakhiCare anything</h2>
+            <p>Find guidance on anemia screening, counselling, and referrals.</p>
+          </div>
+        )}
         {conversation.map((exchange, index) => {
           const references = Array.from(new Map(exchange.references.map(reference => [
             `${reference.document_id}:${reference.page}`, reference,
@@ -203,16 +223,16 @@ function GuidelineChat({ accountName, backLabel, onSessionExpired, active }: Ask
         {error && <p className="signup-error" role="alert">{error}</p>}
       </div>
       <div className={hasConversation ? "ask-dock ask-dock-active" : "ask-dock"}>
-        {hasConversation && suggestionPanel}
+        {hasConversation && (isAdmin ? suggestionPanel : <details className="ask-field-examples"><summary>Suggested follow-ups</summary>{suggestionPanel}</details>)}
       <form className="panel ask-composer" onSubmit={submit} aria-busy={pending}>
         <label htmlFor="guideline-question">{hasConversation ? "Ask a follow-up" : "Your question"}</label>
         <textarea ref={composer} id="guideline-question" value={question} maxLength={2000} minLength={3} required
-          rows={hasConversation ? 2 : 3} aria-describedby="question-guidance" placeholder="Type a question..."
+          rows={2} aria-describedby="question-guidance" placeholder={hasConversation ? "Ask a follow-up..." : "Ask about anemia protocols..."}
           onChange={event => setQuestion(event.target.value)} />
-        <small id="question-guidance">Leave out patient names and other identifying details.</small>
+        <small id="question-guidance">Keep patient details out. Voice input uses your browser's speech service.</small>
         <div className="ask-actions">
+          {sourceControl}
           <label>
-            {!hasConversation && <span>Answer language</span>}
             <select aria-label="Answer language" value={language} onChange={event => {
               const nextLanguage = event.target.value as Language;
               const selectedExample = suggestions[language].indexOf(question);
@@ -230,12 +250,13 @@ function GuidelineChat({ accountName, backLabel, onSessionExpired, active }: Ask
               setQuestion(text.slice(0, 2000));
               composer.current?.focus();
             }} />
-          <button className="btn" type="submit" disabled={pending || question.trim().length < 3}>
-            {pending ? "Searching..." : hasConversation ? "Send" : "Ask question"}
+          <button className="btn ask-send" type="submit" disabled={pending || question.trim().length < 3}>
+            <span className="ask-send-label">{pending ? "Searching..." : hasConversation ? "Send" : "Ask question"}</span>
+            <span className="ask-send-icon" aria-hidden="true">&#8593;</span>
           </button>
         </div>
       </form>
-        {!hasConversation && suggestionPanel}
+        {!hasConversation && (isAdmin ? suggestionPanel : <details className="ask-field-examples"><summary>Example questions</summary>{suggestionPanel}</details>)}
       </div>
     </section>
   );

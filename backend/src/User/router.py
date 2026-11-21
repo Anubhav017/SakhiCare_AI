@@ -27,6 +27,8 @@ def login(body: UserLoginSchema, db: Session = Depends(get_db)):
 )
 def create_session(body: BrowserLoginSchema, response: Response, db: Session = Depends(get_db)):
     user = controller.authenticate_credentials(body, db)
+    if body.role is not None and user.role != body.role:
+        raise HTTPException(status_code=400, detail="Choose the role that matches your account.")
     browser_session.set_session(response, user, body.remember)
     response.headers["Cache-Control"] = "no-store"
     return user

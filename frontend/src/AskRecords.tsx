@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 type Report = "patient_count" | "due_followups" | "patients_by_worker";
 type Question = Report | "worker_patients";
@@ -54,7 +54,8 @@ const shortcutLabels: Record<Report, string> = {
   patients_by_worker: "Patients by ASHA",
 };
 
-export function AskRecords({ isAdmin, backLabel, onSessionExpired }: {
+export function AskRecords({ isAdmin, backLabel, onSessionExpired, sourceControl }: {
+  sourceControl: ReactNode;
   isAdmin: boolean;
   backLabel: string;
   onSessionExpired: () => void;
@@ -74,7 +75,7 @@ export function AskRecords({ isAdmin, backLabel, onSessionExpired }: {
   ];
   if (isAdmin) questions.push({ id: "patients_by_worker", label: "How many patients does each ASHA have?" });
 
-  async function ask(question: Question, worker?: string) {
+  async function ask(question: Question, worker?: string, submittedDraft?: string) {
     setQuestionError("");
     request.current?.abort();
     const controller = new AbortController();
@@ -98,7 +99,12 @@ export function AskRecords({ isAdmin, backLabel, onSessionExpired }: {
       }
       if (!response.ok) throw new Error("Record request failed");
       const result = await response.json() as RecordAnswer;
-      if (!controller.signal.aborted) setAnswer(result);
+      if (!controller.signal.aborted) {
+        setAnswer(result);
+        if (submittedDraft !== undefined) {
+          setTypedQuestion(current => current === submittedDraft ? "" : current);
+        }
+      }
     } catch {
       if (!controller.signal.aborted) setError("Could not load records. Select a question to try again.");
     } finally {
@@ -116,7 +122,7 @@ export function AskRecords({ isAdmin, backLabel, onSessionExpired }: {
         {pending && <p className="ask-answer" role="status">Looking up records&hellip;</p>}
         {error && <p className="signup-error" role="alert">{error}</p>}
         {answer && <section className="panel records-result">
-          <h2>{"patients" in answer ? `Patients for ${answer.worker}` : questions.find(question => question.id === selected)?.label}</h2>
+          <h2>{"patients" in answer ? `Patients for ${answer.worker}` : selected === "patient_count" && isAdmin ? "Team patient count" : selected && selected !== "worker_patients" ? shortcutLabels[selected] : "Patient records"}</h2>
           {"patients" in answer && (answer.total ? <>
             <p>{answer.total} {answer.total === 1 ? "patient" : "patients"}</p>
             <ul>{answer.patients.map(patient => <li key={patient.id}>
@@ -125,9 +131,11 @@ export function AskRecords({ isAdmin, backLabel, onSessionExpired }: {
             {answer.total > answer.patients.length && <a href="#today">View the full team list</a>}
           </> : <p>No patients assigned.</p>)}
           {"count" in answer && <p className="records-total"><strong>{answer.count}</strong> {answer.count === 1 ? "patient" : "patients"}</p>}
-          {"workers" in answer && (answer.workers.length ? <ul>
+          {"workers" in answer && (answer.workers.length ? <>
+            {"count" in answer && <h3>By ASHA worker</h3>}
+            <ul>
             {answer.workers.map((row, index) => <li key={index}>{row.worker} &middot; {row.count} patients</li>)}
-          </ul> : <p>No ASHA workers assigned.</p>)}
+          </ul></> : <p>No ASHA workers assigned.</p>)}
           {"followups" in answer && (answer.total ? <>
             <p>{answer.total} due or overdue {answer.total === 1 ? "follow-up" : "follow-ups"}</p>
             <ul>{answer.followups.map(row => <li key={row.id}>
@@ -151,9 +159,9 @@ export function AskRecords({ isAdmin, backLabel, onSessionExpired }: {
           /^(?:list|show)(?: me)? (.+?)['’]s patients$/i.exec(requestText)?.[1]
         );
         if (match) {
-          void ask(match.id);
+          void ask(match.id, undefined, typedQuestion);
         } else if (worker) {
-          void ask("worker_patients", worker.trim());
+          void ask("worker_patients", worker.trim(), typedQuestion);
         } else {
           request.current?.abort();
           setPending(false);
@@ -166,20 +174,21 @@ export function AskRecords({ isAdmin, backLabel, onSessionExpired }: {
         }
       }}>
         <label htmlFor="records-question">Your records question</label>
-        <div className="records-input-row">
         <input id="records-question" value={typedQuestion} maxLength={200}
           placeholder={questions[0].label} onChange={event => {
             setTypedQuestion(event.target.value);
             setQuestionError("");
           }} />
-        <button className="btn" type="submit" disabled={!typedQuestion.trim()}>Ask</button>
+        <div className="ask-actions">
+          {sourceControl}
+          <button className="btn ask-send" type="submit" disabled={!typedQuestion.trim()}>Ask</button>
         </div>
         {questionError && <p className="signup-error" role="alert">{questionError}</p>}
       </form>
       <div className="ask-records" role="group" aria-label="Quick questions">
         {questions.map(question => (
           <button key={question.id} type="button" className="btn subtle" aria-pressed={selected === question.id}
-            onClick={() => { setTypedQuestion(question.label); void ask(question.id); }}>{shortcutLabels[question.id]}</button>
+            onClick={() => void ask(question.id)}>{shortcutLabels[question.id]}</button>
         ))}
       </div>
     </section>

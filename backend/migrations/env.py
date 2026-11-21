@@ -1,7 +1,7 @@
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
-from src.utils.settings import settings
+from src.utils.config import settings
 
 
 from src.tasks.models import TaskModel 

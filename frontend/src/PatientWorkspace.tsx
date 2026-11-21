@@ -1,5 +1,36 @@
+import { PatientCare } from "./PatientCare";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { dateKey, formatDate, listHbReadings, type HbReading, type Followup, type Patient } from "./records";
+
+function HbTrend({ readings }: { readings: HbReading[] }) {
+  const rows = [...readings].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  const dates = rows.map(row => Date.parse(row.date));
+  const start = dates[0];
+  const end = dates[dates.length - 1];
+  const low = rows.reduce((min, row) => Math.min(min, row.hb), Infinity);
+  const high = rows.reduce((max, row) => Math.max(max, row.hb), -Infinity);
+  const points = rows.map((row, index) => ({
+    x: start === end ? 160 : 14 + 292 * (dates[index] - start) / (end - start),
+    y: low === high ? 58 : 102 - 88 * (row.hb - low) / (high - low),
+  }));
+
+  return <figure className="hb-trend">
+    <figcaption>Haemoglobin trend (g/dL)</figcaption>
+    <svg viewBox="0 0 320 116" aria-hidden="true">
+      <path className="hb-grid" d="M14 14H306 M14 58H306 M14 102H306" />
+      <polyline points={points.map(point => point.x + "," + point.y).join(" ")} />
+      {points.map((point, index) =>
+        <circle key={rows[index].id} cx={point.x} cy={point.y} r="4">
+          <title>{formatDate(rows[index].date)}: {rows[index].hb} g/dL</title>
+        </circle>,
+      )}
+    </svg>
+    <div className="hb-trend-labels">
+      <span>{formatDate(rows[0].date)} · {rows[0].hb} g/dL</span>
+      {rows.length > 1 && <span>{formatDate(rows[rows.length - 1].date)} · {rows[rows.length - 1].hb} g/dL</span>}
+    </div>
+  </figure>;
+}
 
 export function patientRoute(section: string) {
   const match = /^patient\/([1-9]\d*)(\/followups)?$/.exec(section);
@@ -44,9 +75,9 @@ export function FollowupList({ items, patients, empty, onToggle, busyId }: Follo
   });
 }
 
-export function PatientDetail({ patient, followups, backTo, backLabel, onSchedule, onScreen,
+export function PatientDetail({ patient, followups, backTo, backLabel, onSchedule, onScreen, onPatientChange,
   onToggle, busyId, followupStatus }: {
-  patient: Patient; followups: Followup[]; backTo: string; backLabel: string;
+  patient: Patient; onPatientChange?: (patient: Patient) => void; followups: Followup[]; backTo: string; backLabel: string;
   followupStatus?: ReactNode;
   onSchedule?: () => void; onScreen?: () => void;
   onToggle?: (followup: Followup) => void; busyId?: string | null;
@@ -94,10 +125,25 @@ export function PatientDetail({ patient, followups, backTo, backLabel, onSchedul
       <section className="panel followup-panel" aria-label="Hb screening">
         <header className="section-head"><h2>Hb screening</h2></header>
         {patient.screening ? <>
-          <p>{patient.screening.hb === null ? "Hb test pending" : `Hb ${patient.screening.hb} g/dL`}</p>
-          <small>{formatDate(patient.screening.date)}{patient.screening.method && <> &middot; {patient.screening.method}</>}</small>
+          <dl className="patient-screening-summary">
+            <div>
+              <dt>Current Hb</dt>
+              <dd><strong>{patient.screening.hb === null ? "Test pending" : patient.screening.hb + " g/dL"}</strong></dd>
+            </div>
+            <div>
+              <dt>Risk Level</dt>
+              <dd>{patient.screening.risk
+                ? <span className="pill patient-risk">{patient.screening.risk} risk</span>
+                : "Not assessed"}</dd>
+            </div>
+          </dl>
+          <div className="patient-screening-details">
+            <time dateTime={patient.screening.date}>{formatDate(patient.screening.date)}</time>
+            {patient.screening.method && <span>{patient.screening.method}</span>}
+          </div>
         </> : <p className="empty">No screening recorded yet.</p>}
       </section>
+      <PatientCare key={patient.id} patient={patient} onPatientChange={onPatientChange} />
       <section className="panel followup-panel" aria-label="Patient timeline">
         <header className="section-head">
           <h2>Patient timeline</h2>
@@ -108,6 +154,7 @@ export function PatientDetail({ patient, followups, backTo, backLabel, onSchedul
           <p>Could not load Hb history.</p>
           <button className="btn subtle" onClick={() => setRetry(value => value + 1)}>Retry</button>
         </div>}
+        {history && history !== "error" && history.rows.length > 0 && <HbTrend readings={history.rows} />}
         {followupStatus}
         {history && history !== "error" && !followupStatus && !timeline.length &&
           <p className="empty">No Hb readings or follow-ups recorded yet.</p>}

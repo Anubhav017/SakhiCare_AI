@@ -5,7 +5,7 @@ from fastapi import Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from src.User.models import UserModel
-from src.utils.settings import settings
+from src.utils.config import settings
 
 COOKIE_NAME = "sakhicare_session"
 AUDIENCE = "sakhicare-browser"

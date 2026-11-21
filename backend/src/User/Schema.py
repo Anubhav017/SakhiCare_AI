@@ -24,6 +24,7 @@ class UserLoginResponseSchema(BaseModel):
 
 class BrowserLoginSchema(UserLoginSchema):
     remember: bool = False
+    role: Literal["asha", "super_admin"] | None = None
 
 
 class BrowserAccountSchema(UserResponseSchema):

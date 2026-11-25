@@ -404,6 +404,21 @@ dialog {
   box-shadow:0 16px 70px #3f142840;
 }
 
+
+.patient-location-fields {
+  padding:14px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fffafc;
+}
+.patient-location-fields h3 { margin:0 0 10px; font-size:.98rem; }
+.patient-location-fields h3 small { display:block; margin-top:3px; color:var(--muted); font-size:.78rem; font-weight:450; }
+.patient-location-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.patient-location-grid label { min-width:0; }
+.location-attribution,.location-error { grid-column:1/-1; margin:0; color:var(--muted); font-size:.78rem; }
+.location-error { color:var(--accent); }
+@media(max-width:480px) { .patient-location-grid { grid-template-columns:1fr; } }
+
 dialog::backdrop {
   background:#2d152d80;
 }
@@ -1167,6 +1182,271 @@ dialog .actions {
 .ask-sources summary {
   cursor: pointer;
   color: #892044;
+}
+
+.ask-email-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.85rem;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
+}
+
+.ask-email-tools small {
+  flex: 1 1 15rem;
+}
+
+.ask-email-draft {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.85rem;
+  padding: clamp(0.85rem, 2.5vw, 1.25rem);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.ask-email-draft-head,
+.ask-email-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.ask-email-badge {
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: var(--rose);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.ask-email-draft label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.ask-email-draft input,
+.ask-email-draft textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 400;
+}
+
+.ask-email-draft textarea {
+  min-height: 12rem;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
+.ask-email-privacy,
+.ask-email-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.ask-email-status {
+  color: var(--accent);
+}
+
+.ask-email-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 480px) {
+  .ask-email-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .ask-email-actions .btn {
+    width: 100%;
+  }
+}
+
+.care-pathways .section-head > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.care-pathway-run {
+  display: grid;
+  gap: 0.75rem;
+  padding-block: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.care-pathway-run > header > div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.care-pathway-run h3 {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.care-pathway-run h3 small {
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.care-pathway-run ol {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding-inline-start: 1.4rem;
+}
+
+.care-pathway-step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding-inline-start: 0.25rem;
+}
+
+.care-pathway-step.is-complete > span:first-child {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.records-pathways {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.ask-action-review {
+  margin: 1rem 0;
+  border-inline-start: 4px solid var(--brand, #92234f);
+}
+
+.records-mode-select {
+  display: block;
+  width: min(100%, 22rem);
+  margin: .5rem 0 1rem;
+}
+
+.ask-action-hint {
+  margin: .35rem 0 0;
+  color: var(--muted, #695b60);
+  font-size: .9rem;
+}
+
+.ask-action-banner,
+.ask-action-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.ask-action-banner {
+  color: var(--muted, #695b60);
+  font-size: .92rem;
+}
+
+.ask-action-banner span {
+  border-radius: 999px;
+  padding: .2rem .65rem;
+  background: #f7eaf0;
+  color: var(--brand, #92234f);
+  font-size: .78rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.ask-action-review h2 {
+  margin: .8rem 0 .25rem;
+  font-size: 1.22rem;
+}
+
+.ask-action-patient {
+  margin: 0;
+  font-weight: 650;
+}
+
+.ask-action-review ul {
+  margin: .6rem 0;
+  padding-inline-start: 1.35rem;
+}
+
+.ask-action-expiry,
+.ask-action-result {
+  color: var(--muted, #695b60);
+  font-size: .92rem;
+}
+
+.ask-action-buttons {
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.ask-action-applied {
+  border-inline-start-color: #34805b;
+}
+
+.ask-action-cancelled,
+.ask-action-expired,
+.ask-action-failed {
+  border-inline-start-color: #8a777e;
+}
+
+.records-pathways article {
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.records-pathways h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+
+.records-pathways ol {
+  margin-bottom: 0;
+  padding-inline-start: 1.25rem;
+}
+
+.care-pathway-step-state {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 560px) {
+  .care-pathway-step {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .care-pathway-step-state {
+    grid-column: 1;
+  }
+
+  .care-pathway-step .btn {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    white-space: normal;
+  }
 }
 
 .ask-chat-status {

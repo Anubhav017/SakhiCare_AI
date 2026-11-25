@@ -2,13 +2,15 @@ import "@fontsource-variable/noto-sans/wght.css";
 import "@fontsource-variable/noto-sans-devanagari/wght.css";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
-import { getDashboardSummary, type DashboardSummary, saveScreening, dateKey, listPatients, listFollowups, scheduleFollowup, completeFollowup, patientDetails, registerPatient, type Records, type Followup, type ScreeningRisk } from "./records";
+import { getDashboardSummary, type DashboardSummary, saveScreening, dateKey, listPatients, listFollowups, scheduleFollowup, completeFollowup, patientDetails, registerPatient, PossibleDuplicateError, type Records, type Followup, type ScreeningRisk } from "./records";
 import { AuthPage, restoreSession, signOut, type Account } from "./AuthPage";
 import { AdminDashboard } from "./AdminDashboard";
+import { CarePathways } from "./CarePathways";
 import { AskGuidelines } from "./AskGuidelines";
 import { FollowupList, PatientDetail, followupStatus, patientRoute } from "./PatientWorkspace";
 import { AccountMenu, ProfilePage } from "./AccountMenu";
 import { PatientReportUpload } from "./PatientReportUpload";
+import { PatientLocationFields } from "./PatientLocationFields";
 import "./styles.css";
 
 const tabs = [
@@ -66,6 +68,8 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
   const [savingRecord, setSavingRecord] = useState(false);
   const [updatingFollowup, setUpdatingFollowup] = useState<string | null>(null);
   const [registrationError, setRegistrationError] = useState("");
+  const [duplicateMatches, setDuplicateMatches] = useState<Pick<Records["patients"][number], "id" | "name" | "village" | "age">[]>([]);
+  const [confirmPossibleDuplicate, setConfirmPossibleDuplicate] = useState(false);
   const [section, setSection] = useState(() => location.hash.slice(1));
   const [editor, setEditor] = useState<Editor | null>(null);
   const [testPending, setTestPending] = useState(false);
@@ -88,6 +92,16 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
     });
     return () => { active = false; };
   }, [loadAttempt]);
+
+  useEffect(() => {
+    const refresh = () => {
+      setPatientError("");
+      setLoadingPatients(true);
+      setLoadAttempt(attempt => attempt + 1);
+    };
+    window.addEventListener("sakhicare:records-changed", refresh);
+    return () => window.removeEventListener("sakhicare:records-changed", refresh);
+  }, []);
 
   function retryPatients() {
     setPatientError("");
@@ -133,7 +147,8 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
     return () => { current = false; };
   }, [active, loadingPatients, patientError, records.patients]);
 
-  const anemiaCount = records.patients.filter(item => item.anemia_status === "confirmed").length;
+  const confirmedAnemiaCount = records.patients.filter(item => item.anemia_status === "confirmed").length;
+  const notAssessedCount = records.patients.filter(item => !item.anemia_status).length;
   const weeklyHbChange = summary?.weekly_hb_change;
 
   const today = dateKey();
@@ -148,7 +163,7 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
   const matchingPatients = records.patients.filter(item => {
     const status = item.screening === null ? "none" : item.screening.hb === null ? "pending" : "measured";
     return (screeningFilter === "all" || screeningFilter === status) &&
-      `${item.name} ${item.village ?? ""}`.toLowerCase().includes(patientQuery);
+      `${item.name} ${item.village ?? ""} ${item.block ?? ""} ${item.district ?? ""} ${item.state ?? ""} ${item.town ?? ""} ${item.ward ?? ""}`.toLowerCase().includes(patientQuery);
   });
   const pageSize = 8;
   const patientPageCount = Math.max(1, Math.ceil(matchingPatients.length / pageSize));
@@ -159,6 +174,8 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
     const previous = next.kind === "screening" && records.patients.find(item => item.id === next.patientId)?.screening;
     setTestPending(Boolean(previous && previous.hb === null));
     setRegistrationError("");
+    setDuplicateMatches([]);
+    setConfirmPossibleDuplicate(false);
     setEditor(next);
   }
 
@@ -177,8 +194,16 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
       try {
         const patient = await registerPatient({
           name: value("name"),
+          state: value("state") || null,
+          district: value("district") || null,
+          block: value("block") || null,
           village: value("village") || null,
+          locality_type: value("locality_type") === "village" ? "village" : value("locality_type") === "ward" ? "ward" : null,
+          town: value("town") || null,
+          ward: value("ward") || null,
           age: value("age") === "" ? null : Number(value("age")),
+          consent_obtained: data.has("consent_obtained"),
+          confirm_possible_duplicate: confirmPossibleDuplicate,
         });
         setRecords(current => ({
           ...current,
@@ -186,7 +211,13 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
         }));
         setNotice("Patient added");
       } catch (error) {
-        setRegistrationError(error instanceof Error ? error.message : "Could not register the patient.");
+        if (error instanceof PossibleDuplicateError) {
+          setDuplicateMatches(error.matches);
+          setConfirmPossibleDuplicate(false);
+          setRegistrationError(error.message);
+        } else {
+          setRegistrationError(error instanceof Error ? error.message : "Could not register the patient.");
+        }
         return;
       } finally {
         setSavingRecord(false);
@@ -297,11 +328,10 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
                   {summary && <small>+{summary.registered_this_week} this week</small>}
                 </a>
                 <div className="stat">
-                  <span>Anemic Cases <b aria-hidden="true">&#9432;</b></span>
-                  <strong>{loadingPatients || patientError ? "—" : anemiaCount}</strong>
-                  {!loadingPatients && !patientError && records.patients.length > 0 && <small>
-                    {Math.round(100 * anemiaCount / records.patients.length)}% of total
-                    {" · "}{records.patients.filter(item => !item.anemia_status).length} not assessed
+                  <span>Anemia confirmed (recorded) <b title="Based on an ASHA-entered assessment; this is not calculated from Hb." aria-label="About this count">&#9432;</b></span>
+                  <strong>{loadingPatients || patientError ? "—" : confirmedAnemiaCount}</strong>
+                  {!loadingPatients && !patientError && <small>
+                    ASHA-entered assessment · {notAssessedCount} not assessed
                   </small>}
                 </div>
                 <div className="stat">
@@ -311,9 +341,9 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
                     (weeklyHbChange > 0 ? "+" : "") + weeklyHbChange.toFixed(1) + " g/dL vs last week"}</small>
                 </div>
                 <div className="stat">
-                  <span>High Risk <b aria-hidden="true">&#9888;</b></span>
+                  <span>High risk (recorded) <b title="Risk is entered by the ASHA; SakhiCare does not calculate it from Hb." aria-label="About this risk count">&#9888;</b></span>
                   <strong>{loadingPatients || patientError || !records.patients.some(item => item.screening?.risk) ? "—" : records.patients.filter(item => item.screening?.risk === "high").length}</strong><small>{summary && summary.high_risk_without_open_referral > 0 ?
-                    summary.high_risk_without_open_referral + " without open referral" : "Recorded risk"}</small>
+                    summary.high_risk_without_open_referral + " without open referral · ASHA-entered risk" : "ASHA-entered risk; not calculated from Hb"}</small>
                 </div>
               </div>
               <section className="panel"><header className="section-head"><h2>Due today and overdue</h2></header><FollowupList items={due} patients={records.patients} empty="No follow-ups due."
@@ -361,7 +391,7 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
                           {item.screening?.hb === null ? "Hb test pending" : item.screening ? `Hb ${item.screening.hb} g/dL` : "No screening yet"}
                         </span>
                         {item.screening && <div className="patient-screening-meta">
-                          {item.screening.risk && <span className="pill patient-risk">{item.screening.risk} risk</span>}
+                          {item.screening.risk && <span className="pill patient-risk">Recorded: {item.screening.risk} risk</span>}
                           <time dateTime={item.screening.date}>{item.screening.date}</time>
                         </div>}
                       </div>
@@ -409,6 +439,7 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
                   empty={statusFilter === "All" ? "No follow-ups scheduled yet." : "No follow-ups with this status."}
                   onToggle={toggleFollowup} busyId={updatingFollowup} />
               </section>
+              <CarePathways patients={records.patients} />
             </>}
           </div>
         </main>
@@ -420,13 +451,31 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
           {patient && <small>{patient.name}</small>}
           <form onSubmit={submit}>
             {editor.kind === "patient" && <>
-              <label>Patient name<input name="name" required maxLength={100} autoFocus /></label>
-              <label>Village (optional)<input name="village" maxLength={100} /></label>
-              <label>Age in years (optional)<input name="age" type="number" min="0" max="130" step="1" /></label>
+              <label>Patient name<input name="name" required maxLength={100} autoFocus onChange={() => { setDuplicateMatches([]); setConfirmPossibleDuplicate(false); setRegistrationError(""); }} /></label>
+              <PatientLocationFields />
+              <label>Age in years (optional)<input name="age" type="number" min="0" max="130" step="1" onChange={() => { setDuplicateMatches([]); setConfirmPossibleDuplicate(false); setRegistrationError(""); }} /></label>
+              <label className="remember-option"><input name="consent_obtained" type="checkbox" required />
+                <span>Consent confirmed<small>I explained why this record is being created and the patient agreed.</small></span>
+              </label>
+              {duplicateMatches.length > 0 && <section className="panel duplicate-patient-warning" aria-label="Possible duplicate patients">
+                <h3>Possible matching records</h3>
+                <ul>{duplicateMatches.map(match => <li key={match.id}>
+                  {match.name}{match.village ? <> &middot; {match.village}</> : null}{match.age == null ? null : <> &middot; {match.age} years</>}
+                  <button className="btn subtle" type="button" onClick={() => {
+                    setEditor(null);
+                    location.hash = `patient/${match.id}`;
+                  }}>Open record</button>
+                </li>)}</ul>
+                <label className="remember-option"><input type="checkbox" checked={confirmPossibleDuplicate}
+                  onChange={event => setConfirmPossibleDuplicate(event.target.checked)} />
+                  <span>Register as a separate patient<small>Use only after confirming this is not the same person.</small></span>
+                </label>
+              </section>}
             </>}
             {editor.kind === "screening" && <>
               <label>Test status<select value={testPending ? "pending" : "recorded"} onChange={event => setTestPending(event.target.value === "pending")} autoFocus><option value="recorded">Measured Hb</option><option value="pending">Hb test pending</option></select></label>
               <label>Risk level
+                <small>Record the risk per your approved protocol. SakhiCare does not calculate it from Hb.</small>
                 <select name="risk" defaultValue={patient?.screening?.risk ?? ""}>
                   <option value="">Not assessed</option>
                   <option value="low">Low</option>
@@ -448,7 +497,7 @@ function Dashboard({ account, onLogout, onSessionExpired }: { account: Account; 
             {registrationError && <p className="signup-error" role="alert">{registrationError}</p>}
             <div className="actions">
               <button type="button" className="btn subtle" disabled={savingRecord} onClick={() => setEditor(null)}>Cancel</button>
-              <button type="submit" className="btn" disabled={savingRecord}>{savingRecord ? "Saving..." : "Save"}</button>
+              <button type="submit" className="btn" disabled={savingRecord || (editor.kind === "patient" && duplicateMatches.length > 0 && !confirmPossibleDuplicate)}>{savingRecord ? "Saving..." : editor.kind === "patient" && confirmPossibleDuplicate ? "Confirm separate patient" : "Save"}</button>
             </div>
           </form>
         </>}
@@ -533,3 +582,6 @@ function App() {
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+
+

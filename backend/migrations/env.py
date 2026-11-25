@@ -4,11 +4,12 @@ from sqlalchemy import engine_from_config
 from src.utils.config import settings
 
 
-from src.tasks.models import TaskModel 
 from src.User.models import UserModel
 from src.documents.models import RagDocument, RagChunk
 from src.followups.models import FollowupModel
 from src.patients.models import PatientModel  # Registers patient table metadata.
+from src.pathways.models import CarePathwayRun, CarePathwayStep
+from src.rag.action_models import AskActionDraft
 
 from src.utils.db import Base
 

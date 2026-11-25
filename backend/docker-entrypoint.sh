@@ -10,4 +10,5 @@ if [ -z "${SECRET_KEY:-}" ]; then
     fi
     export SECRET_KEY="$(cat "$key_file")"
 fi
+alembic upgrade head
 exec "$@"

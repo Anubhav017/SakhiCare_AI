@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 from src.User.models import UserModel
 from src.documents.models import RagChunk, RagDocument
 from src.utils.ai_client import embed
-from src.tasks.models import TaskModel
 from src.utils.config import settings
 
 
@@ -81,21 +80,4 @@ def pdf_context(
         if guidelines_only:
             reference.update(title=title, version=version, language=source_language)
         references.append(reference)
-    return "\n".join(excerpts), references
-
-
-def task_context(db: Session, user_id: int):
-    tasks = (
-        db.query(TaskModel)
-        .filter(TaskModel.user_id == user_id)
-        .order_by(TaskModel.id)
-        .limit(settings.RAG_TASK_LIMIT)
-        .all()
-    )
-    excerpts = [
-        f"[Task {task.id}] title={task.title!r}; "
-        f"description={task.description!r}; completed={bool(task.is_completed)}"
-        for task in tasks
-    ]
-    references = [{"type": "task", "task_id": task.id} for task in tasks]
     return "\n".join(excerpts), references

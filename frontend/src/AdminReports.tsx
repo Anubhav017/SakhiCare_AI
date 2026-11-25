@@ -6,7 +6,7 @@ const columns = [
   ["patients", "Patients"],
   ["hb_recorded", "Hb readings"],
   ["hb_pending", "Hb pending"],
-  ["anemia_confirmed", "Anemia confirmed"],
+  ["anemia_confirmed", "Anemia confirmed (recorded)"],
   ["not_assessed", "Not assessed"],
   ["followups_due", "Follow-ups due today"],
   ["followups_overdue", "Follow-ups overdue"],

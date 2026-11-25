@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
-  createReferral, dateKey, formatDate, listReferrals, saveAnemiaAssessment, updateReferral,
+  createReferral, dateKey, formatDate, listReferrals, saveAnemiaAssessment, updateReferral, updatePatientConsent,
   type AnemiaStatus, type Patient, type Referral,
 } from "./records";
 
@@ -22,6 +22,9 @@ export function PatientCare({ patient, onPatientChange }: {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [closing, setClosing] = useState<number | null>(null);
+  const [consentChoice, setConsentChoice] = useState(patient.consent_obtained === true ? "yes" : patient.consent_obtained === false ? "no" : "unknown");
+  const [consentBusy, setConsentBusy] = useState(false);
+  const [consentMessage, setConsentMessage] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -33,6 +36,26 @@ export function PatientCare({ patient, onPatientChange }: {
     });
     return () => { active = false; };
   }, [patient.id, attempt]);
+
+  useEffect(() => {
+    setConsentChoice(patient.consent_obtained === true ? "yes" : patient.consent_obtained === false ? "no" : "unknown");
+    setConsentMessage("");
+  }, [patient.id, patient.consent_obtained, patient.consent_recorded_at]);
+
+  async function saveConsent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!onPatientChange || consentChoice === "unknown" || consentBusy) return;
+    setConsentBusy(true);
+    setConsentMessage("");
+    try {
+      onPatientChange(await updatePatientConsent(patient.id, consentChoice === "yes"));
+      setConsentMessage("Consent status saved.");
+    } catch (cause) {
+      setConsentMessage(cause instanceof Error ? cause.message : "Could not save consent status.");
+    } finally {
+      setConsentBusy(false);
+    }
+  }
 
   async function save(action: () => Promise<void>, message: string) {
     if (busy) return;
@@ -85,6 +108,20 @@ export function PatientCare({ patient, onPatientChange }: {
   }
 
   return <>
+    <section className="panel followup-panel" aria-labelledby="consent-title">
+      <h2 id="consent-title">Patient consent</h2>
+      <p>{patient.consent_obtained === true ? "Consent confirmed" : patient.consent_obtained === false ? "Consent withdrawn or not granted" : "No consent record on file"}
+        {patient.consent_recorded_at && <> &middot; <time dateTime={patient.consent_recorded_at}>{new Date(patient.consent_recorded_at).toLocaleString("en-IN")}</time></>}</p>
+      {onPatientChange && <form onSubmit={saveConsent}>
+        <label>Consent status<select value={consentChoice} disabled={consentBusy} onChange={event => setConsentChoice(event.target.value)}>
+          <option value="unknown">No record on file</option>
+          <option value="yes">Confirmed by ASHA</option>
+          <option value="no">Not granted / withdrawn</option>
+        </select></label>
+        <button className="btn subtle" disabled={consentBusy || consentChoice === "unknown"}>{consentBusy ? "Saving..." : "Save consent status"}</button>
+      </form>}
+      {consentMessage && <p role="status">{consentMessage}</p>}
+    </section>
     <section className="panel followup-panel" aria-labelledby="anemia-assessment-title">
       <h2 id="anemia-assessment-title">Anemia assessment</h2>
       <p>{patient.anemia_status ? assessmentLabels[patient.anemia_status] : "Not assessed"}</p>

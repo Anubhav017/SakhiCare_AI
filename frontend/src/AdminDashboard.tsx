@@ -2,6 +2,7 @@ import { AdminReports } from "./AdminReports";
 import { useEffect, useRef, useState } from "react";
 import { listManagedAshas, type Account, type ManagedAsha } from "./AuthPage";
 import { AskGuidelines } from "./AskGuidelines";
+import { CarePathways } from "./CarePathways";
 import { AccountMenu, ProfilePage } from "./AccountMenu";
 import { listFollowups, listPatients, patientDetails, type Followup, type Patient } from "./records";
 import { FollowupList, PatientDetail, patientRoute } from "./PatientWorkspace";
@@ -194,6 +195,7 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
               <header className="section-head"><h2>Open</h2></header>
               <FollowupList items={followups.filter(item => !item.done)} patients={patients} empty="No open follow-ups." />
             </section>
+            <CarePathways patients={patients} readOnly />
             <section className="panel followup-panel">
               <header className="section-head"><h2>Completed</h2></header>
               <FollowupList items={followups.filter(item => item.done)} patients={patients} empty="No completed follow-ups." />
@@ -206,7 +208,7 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
                     <button className="btn subtle" onClick={() => setFollowupAttempt(value => value + 1)}>Retry</button>
                   </div> : undefined}
                 backTo={detail.fromFollowups ? "#followups" : "#today"}
-                backLabel={detail.fromFollowups ? "Back to follow-ups" : "Back to ASHA"} />
+                backLabel={detail.fromFollowups ? "Back to follow-ups" : "Back to ASHA"} pathwayReadOnly />
             : <p className="empty">Patient unavailable. <a href="#today">Back to ASHA</a></p>)}
           {showWorkspace && !loading && !loadError && <>
             <div className="asha-view-switch" role="group" aria-label="Workspace view">

@@ -1,6 +1,8 @@
 import { PatientCare } from "./PatientCare";
+import { CarePathways } from "./CarePathways";
+import { PregnancyCare } from "./PregnancyCare";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { dateKey, formatDate, listHbReadings, type HbReading, type Followup, type Patient } from "./records";
+import { dateKey, formatDate, listHbReadings, listPatientActivity, type PatientActivityEvent, type HbReading, type Followup, type Patient, patientDetails } from "./records";
 
 function HbTrend({ readings }: { readings: HbReading[] }) {
   const rows = [...readings].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
@@ -76,15 +78,19 @@ export function FollowupList({ items, patients, empty, onToggle, busyId }: Follo
 }
 
 export function PatientDetail({ patient, followups, backTo, backLabel, onSchedule, onScreen, onPatientChange,
-  onToggle, busyId, followupStatus }: {
+  onToggle, busyId, followupStatus, pathwayReadOnly = false }: {
   patient: Patient; onPatientChange?: (patient: Patient) => void; followups: Followup[]; backTo: string; backLabel: string;
   followupStatus?: ReactNode;
   onSchedule?: () => void; onScreen?: () => void;
   onToggle?: (followup: Followup) => void; busyId?: string | null;
+  pathwayReadOnly?: boolean;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   const [history, setHistory] = useState<{ rows: HbReading[] } | "error" | null>(null);
   const [retry, setRetry] = useState(0);
+  const [activity, setActivity] = useState<PatientActivityEvent[] | null>(null);
+  const [activityError, setActivityError] = useState(false);
+  const [activityRetry, setActivityRetry] = useState(0);
   useEffect(() => {
     let current = true;
     setHistory(null);
@@ -96,12 +102,24 @@ export function PatientDetail({ patient, followups, backTo, backLabel, onSchedul
     return () => { current = false; };
   }, [patient.id, patient.screening, retry]);
 
+  useEffect(() => {
+    let current = true;
+    setActivity(null);
+    setActivityError(false);
+    listPatientActivity(patient.id).then(rows => {
+      if (current) setActivity(rows);
+    }).catch(() => {
+      if (current) setActivityError(true);
+    });
+    return () => { current = false; };
+  }, [patient.id, activityRetry]);
+
   const timeline = [
     ...(history && history !== "error" ? history.rows : []).map(item => ({ kind: "reading" as const, item })),
     ...followups.filter(item => item.patientId === patient.id).map(item => ({ kind: "followup" as const, item })),
   ].sort((a, b) => b.item.date.localeCompare(a.item.date));
 
-  const demographics = [patient.village, patient.age == null ? null : `${patient.age} years`].filter(Boolean);
+  const demographics = patientDetails(patient);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -117,7 +135,7 @@ export function PatientDetail({ patient, followups, backTo, backLabel, onSchedul
         <div className="page-head">
           <div>
             <h1 id="patient-title" ref={heading} tabIndex={-1}>{patient.name}</h1>
-            {demographics.length > 0 && <p>{demographics.join(" \u00b7 ")}</p>}
+            {demographics && <p>{demographics}</p>}
           </div>
           {onScreen && <button className="btn subtle" onClick={onScreen}>Record Hb</button>}
         </div>
@@ -131,7 +149,7 @@ export function PatientDetail({ patient, followups, backTo, backLabel, onSchedul
               <dd><strong>{patient.screening.hb === null ? "Test pending" : patient.screening.hb + " g/dL"}</strong></dd>
             </div>
             <div>
-              <dt>Risk Level</dt>
+              <dt>Risk recorded</dt>
               <dd>{patient.screening.risk
                 ? <span className="pill patient-risk">{patient.screening.risk} risk</span>
                 : "Not assessed"}</dd>
@@ -144,6 +162,19 @@ export function PatientDetail({ patient, followups, backTo, backLabel, onSchedul
         </> : <p className="empty">No screening recorded yet.</p>}
       </section>
       <PatientCare key={patient.id} patient={patient} onPatientChange={onPatientChange} />
+      <PregnancyCare key={`pregnancy-${patient.id}`} patientId={patient.id} />
+      <CarePathways patients={[patient]} patientId={patient.id} readOnly={pathwayReadOnly} />
+      <section className="panel followup-panel" aria-label="Record activity">
+        <header className="section-head"><h2>Record activity</h2></header>
+        {activity === null && !activityError && <p role="status">Loading record activity...</p>}
+        {activityError && <div role="alert"><p>Could not load record activity.</p>
+          <button className="btn subtle" type="button" onClick={() => setActivityRetry(value => value + 1)}>Retry</button></div>}
+        {activity && !activity.length && <p className="empty">No activity recorded yet.</p>}
+        {activity?.map(event => <article className="row" key={event.id}>
+          <div><strong>{event.summary}</strong><small>{event.actor_name ?? "Former user"}</small></div>
+          <time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString("en-IN")}</time>
+        </article>)}
+      </section>
       <section className="panel followup-panel" aria-label="Patient timeline">
         <header className="section-head">
           <h2>Patient timeline</h2>

@@ -7,6 +7,7 @@ type Language = "hi" | "en";
 type Reference = { document_id: number; title: string; version: string | null; page: number };
 type Answer = { answer: string; references: Reference[] };
 type Exchange = Answer & { question: string; language: Language };
+type EmailDraft = { to: string; subject: string; body: string; message: string };
 
 const followupQuestions: Record<Language, string[]> = {
   en: [
@@ -82,6 +83,8 @@ function GuidelineChat({ accountName, backLabel, onSessionExpired, active, sourc
   const [asked, setAsked] = useState("");
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [conversation, setConversation] = useState<Exchange[]>([]);
+  const [emailDrafts, setEmailDrafts] = useState<Record<number, EmailDraft>>({});
+  const [emailDraftOpen, setEmailDraftOpen] = useState<Record<number, boolean>>({});
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -95,11 +98,80 @@ function GuidelineChat({ accountName, backLabel, onSessionExpired, active, sourc
 
   function newChat() {
     setConversation([]);
+    setEmailDrafts({});
+    setEmailDraftOpen({});
     setSuggestionIndex(0);
     setAsked("");
     setError("");
     setQuestion(suggestions[language][0]);
     composer.current?.focus();
+  }
+
+  function toggleEmailDraft(index: number, exchange: Exchange) {
+    if (emailDrafts[index]) {
+      setEmailDraftOpen(current => ({ ...current, [index]: !current[index] }));
+      return;
+    }
+    setEmailDrafts(current => {
+      const uniqueReferences = Array.from(new Map(exchange.references.map(reference => [
+        `${reference.document_id}:${reference.page}`, reference,
+      ])).values());
+      const referenceText = uniqueReferences.map(reference =>
+        `${reference.title}${reference.version ? `, version ${reference.version}` : ""}, page ${reference.page}`
+      ).join("\n");
+      const hindi = exchange.language === "hi";
+      const body = hindi
+        ? `नमस्ते टीम,\n\nSakhiCare के दिशानिर्देशों के आधार पर यह जानकारी साझा कर रहा/रही हूँ:\n\n${exchange.answer}\n\nदिशानिर्देश स्रोत:\n${referenceText}\n\nकृपया इस ईमेल में मरीजों के नाम, फोन नंबर, पहचान संख्या या अन्य पहचान बताने वाली जानकारी शामिल न करें। मरीज-विशिष्ट निर्णय के लिए ANM या योग्य चिकित्सक से सलाह लें।\n\nसादर,\n${accountName}`
+        : `Hello team,\n\nSharing this information based on SakhiCare's team guidelines:\n\n${exchange.answer}\n\nGuideline source:\n${referenceText}\n\nPlease keep patient names, phone numbers, IDs, and other identifying details out of this email. For patient-specific decisions, consult the ANM or a qualified clinician.\n\nRegards,\n${accountName}`;
+      return { ...current, [index]: {
+        to: "",
+        subject: hindi ? "SakhiCare: दिशानिर्देश फॉलो-अप" : "SakhiCare guidance follow-up",
+        body,
+        message: "",
+      } };
+    });
+    setEmailDraftOpen(current => ({ ...current, [index]: true }));
+  }
+
+  function updateEmailDraft(index: number, field: "to" | "subject" | "body", value: string) {
+    setEmailDrafts(current => {
+      const draft = current[index];
+      return draft ? { ...current, [index]: { ...draft, [field]: value, message: "" } } : current;
+    });
+  }
+
+  async function copyEmailDraft(index: number) {
+    const draft = emailDrafts[index];
+    if (!draft) return;
+    const text = `${draft.to.trim() ? `To: ${draft.to.trim()}\n` : ""}Subject: ${draft.subject.trim()}\n\n${draft.body}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setEmailDrafts(current => current[index]
+        ? { ...current, [index]: { ...current[index], message: "Draft copied." } }
+        : current);
+    } catch {
+      setEmailDrafts(current => current[index]
+        ? { ...current, [index]: { ...current[index], message: "Clipboard access is unavailable. Select the draft text and copy it." } }
+        : current);
+    }
+  }
+
+  function openEmailApp(index: number) {
+    const draft = emailDrafts[index];
+    if (!draft) return;
+    const recipients = draft.to.split(/[;,]/).map(address => address.trim()).filter(Boolean);
+    if (recipients.some(address => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address))) {
+      setEmailDrafts(current => current[index]
+        ? { ...current, [index]: { ...current[index], message: "Enter valid email addresses separated by commas, or leave To blank and choose recipients in your email app." } }
+        : current);
+      return;
+    }
+    const to = recipients.map(encodeURIComponent).join(",");
+    const mailto = `mailto:${to}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`;
+    window.location.href = mailto;
+    setEmailDrafts(current => current[index]
+      ? { ...current, [index]: { ...current[index], message: "Email app opened. Review the draft and send it manually." } }
+      : current);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -215,6 +287,36 @@ function GuidelineChat({ accountName, backLabel, onSessionExpired, active, sourc
                   {reference.title}{reference.version && <> &middot; Version {reference.version}</>} &middot; Page {reference.page}
                 </li>)}</ul>
               </details>}
+              {references.length > 0 && <div className="ask-email-tools">
+                <button className="btn subtle" type="button" aria-expanded={Boolean(emailDraftOpen[index])}
+                  onClick={() => toggleEmailDraft(index, exchange)}>
+                  {emailDraftOpen[index] ? "Hide email draft" : "Draft email"}
+                </button>
+                <small>Creates an editable staff email from this guideline answer. Patient records are not included.</small>
+              </div>}
+              {emailDraftOpen[index] && emailDrafts[index] && <section className="ask-email-draft" aria-label="Editable email draft">
+                <div className="ask-email-draft-head"><span className="ask-email-badge">DRAFT</span><strong>Review before sending</strong></div>
+                <label>To
+                  <input type="text" value={emailDrafts[index].to} maxLength={320}
+                    placeholder="Email addresses, separated by commas (optional)"
+                    onChange={event => updateEmailDraft(index, "to", event.target.value)} />
+                </label>
+                <label>Subject
+                  <input type="text" value={emailDrafts[index].subject} maxLength={180}
+                    onChange={event => updateEmailDraft(index, "subject", event.target.value)} />
+                </label>
+                <label>Message
+                  <textarea rows={10} value={emailDrafts[index].body} maxLength={10000}
+                    onChange={event => updateEmailDraft(index, "body", event.target.value)} />
+                </label>
+                <p className="ask-email-privacy">Staff communication only. Keep patient names, phone numbers, IDs, and other identifying details out of email.</p>
+                {emailDrafts[index].message && <p className="ask-email-status" role="status">{emailDrafts[index].message}</p>}
+                <div className="ask-email-actions">
+                  <button className="btn subtle" type="button" onClick={() => void copyEmailDraft(index)}>Copy draft</button>
+                  <button className="btn" type="button" onClick={() => openEmailApp(index)}>Open email app</button>
+                </div>
+                <small>Your email app opens with this draft. Review it and press Send there when you are ready.</small>
+              </section>}
             </div>
           </section>;
         })}

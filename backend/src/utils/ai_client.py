@@ -7,6 +7,9 @@ from fastapi import HTTPException
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.embeddings import Embeddings
+from langchain_core.tools import BaseTool
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.language_models.chat_models import BaseChatModel
 
 from src.utils.config import AI_PROVIDERS, settings
 
@@ -22,14 +25,19 @@ def _embedding_client() -> Embeddings:
 
 
 @lru_cache
+def _chat_model() -> BaseChatModel:
+    factory = AI_PROVIDERS[settings.CHAT_PROVIDER].chat
+    assert factory is not None
+    return factory(settings)
+
+
+@lru_cache
 def _chat_chain():
     prompt = ChatPromptTemplate.from_messages([
         ("system", "{system}"),
         ("human", "{user}"),
     ])
-    factory = AI_PROVIDERS[settings.CHAT_PROVIDER].chat
-    assert factory is not None
-    return prompt | factory(settings) | StrOutputParser()
+    return prompt | _chat_model() | StrOutputParser()
 
 
 def _invoke(operation, argument, provider: str, model: str):
@@ -53,9 +61,15 @@ def _invoke(operation, argument, provider: str, model: str):
         raise HTTPException(502, "Could not read the AI provider response") from exc
 
 
+def _require_model_key() -> None:
+    if not settings.MODEL_API_KEY or not settings.MODEL_API_KEY.get_secret_value().strip():
+        raise HTTPException(503, "AI is not configured. Add MODEL_API_KEY to backend/.env.")
+
+
 def embed(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
+    _require_model_key()
     vectors = _invoke(_embedding_client().embed_documents, texts, settings.EMBEDDING_PROVIDER, settings.EMBEDDING_MODEL)
     if (
         not isinstance(vectors, list)
@@ -73,5 +87,22 @@ def embed(texts: list[str]) -> list[list[float]]:
 
 
 def chat(*, system: str, user: str) -> str:
+    _require_model_key()
     response = _invoke(_chat_chain().invoke, {"system": system, "user": user}, settings.CHAT_PROVIDER, settings.CHAT_MODEL)
     return response.strip() or "No answer generated"
+
+
+def call_tool(*, tool: BaseTool, system: str, user: str) -> dict | None:
+    """Ask the configured model for one allow-listed structured tool call."""
+    _require_model_key()
+    tool_model = _chat_model().bind_tools([tool], tool_choice=tool.name)
+    response = _invoke(
+        tool_model.invoke,
+        [SystemMessage(content=system), HumanMessage(content=user)],
+        settings.CHAT_PROVIDER,
+        settings.CHAT_MODEL,
+    )
+    for call in getattr(response, "tool_calls", []):
+        if call.get("name") == tool.name and isinstance(call.get("args"), dict):
+            return call["args"]
+    return None

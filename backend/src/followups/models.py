@@ -13,3 +13,4 @@ class FollowupModel(Base):
     title = Column(String(160), nullable=False)
     due_date = Column(Date, nullable=False)
     is_completed = Column(Boolean, nullable=False, server_default=false())
+    is_archived = Column(Boolean, nullable=False, server_default=false())

@@ -1,4 +1,4 @@
-"""Enable pgvector and prepare document storage for Ollama embeddings."""
+"""Enable pgvector and prepare document storage for embedding vectors."""
 
 import sqlalchemy as sa
 from alembic import op

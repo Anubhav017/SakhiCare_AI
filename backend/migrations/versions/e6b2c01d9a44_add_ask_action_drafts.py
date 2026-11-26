@@ -2,6 +2,8 @@
 from alembic import op
 import sqlalchemy as sa
 
+from migrations.compat import add_column_if_missing
+
 
 revision = "e6b2c01d9a44"
 down_revision = "d4a8c1b72f03"
@@ -10,7 +12,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
+    add_column_if_missing(
         "patient_followups",
         sa.Column("is_archived", sa.Boolean(), server_default=sa.false(), nullable=False),
     )
@@ -31,15 +33,12 @@ def upgrade() -> None:
             "status IN ('pending', 'applied', 'cancelled', 'expired', 'failed')",
             name="ck_ask_action_draft_status",
         ),
+        if_not_exists=True,
     )
-    op.create_index("ix_ask_action_drafts_actor_user_id", "ask_action_drafts", ["actor_user_id"])
-    op.create_index("ix_ask_action_drafts_patient_id", "ask_action_drafts", ["patient_id"])
-    op.create_index("ix_ask_action_drafts_status", "ask_action_drafts", ["status"])
+    op.create_index("ix_ask_action_drafts_actor_user_id", "ask_action_drafts", ["actor_user_id"], if_not_exists=True)
+    op.create_index("ix_ask_action_drafts_patient_id", "ask_action_drafts", ["patient_id"], if_not_exists=True)
+    op.create_index("ix_ask_action_drafts_status", "ask_action_drafts", ["status"], if_not_exists=True)
 
 
 def downgrade() -> None:
-    op.drop_index("ix_ask_action_drafts_status", table_name="ask_action_drafts")
-    op.drop_index("ix_ask_action_drafts_patient_id", table_name="ask_action_drafts")
-    op.drop_index("ix_ask_action_drafts_actor_user_id", table_name="ask_action_drafts")
-    op.drop_table("ask_action_drafts")
-    op.drop_column("patient_followups", "is_archived")
+    raise RuntimeError("Downgrading would discard Ask drafts and follow-up archive history.")

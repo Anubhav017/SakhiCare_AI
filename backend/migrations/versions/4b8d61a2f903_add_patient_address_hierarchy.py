@@ -10,16 +10,32 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("patients", sa.Column("state", sa.String(100), nullable=True))
-    op.add_column("patients", sa.Column("district", sa.String(120), nullable=True))
-    op.add_column("patients", sa.Column("block", sa.String(120), nullable=True))
-    op.add_column("patients", sa.Column("locality_type", sa.String(10), nullable=True))
-    op.add_column("patients", sa.Column("town", sa.String(120), nullable=True))
-    op.add_column("patients", sa.Column("ward", sa.String(30), nullable=True))
-    op.create_check_constraint("ck_patient_locality_type", "patients", "locality_type IN ('village', 'ward')")
+    table_name = "patients"
+    inspector = sa.inspect(op.get_bind())
+    existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+
+    address_columns = (
+        sa.Column("state", sa.String(100), nullable=True),
+        sa.Column("district", sa.String(120), nullable=True),
+        sa.Column("block", sa.String(120), nullable=True),
+        sa.Column("locality_type", sa.String(10), nullable=True),
+        sa.Column("town", sa.String(120), nullable=True),
+        sa.Column("ward", sa.String(30), nullable=True),
+    )
+    for column in address_columns:
+        if column.name not in existing_columns:
+            op.add_column(table_name, column)
+
+    constraint_name = "ck_patient_locality_type"
+    existing_constraints = {
+        constraint["name"]
+        for constraint in sa.inspect(op.get_bind()).get_check_constraints(table_name)
+    }
+    if constraint_name not in existing_constraints:
+        op.create_check_constraint(
+            constraint_name, table_name, "locality_type IN ('village', 'ward')"
+        )
 
 
-def downgrade():
-    op.drop_constraint("ck_patient_locality_type", "patients", type_="check")
-    for column in ("ward", "town", "locality_type", "block", "district", "state"):
-        op.drop_column("patients", column)
+def downgrade() -> None:
+    raise RuntimeError("Downgrading would discard saved patient address details.")

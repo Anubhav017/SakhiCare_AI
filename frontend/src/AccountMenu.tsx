@@ -6,7 +6,7 @@ export function accountInitials(name: string) {
 }
 
 export function accountRole(account: Account) {
-  return account.role === "super_admin" ? "Super Admin" : "ASHA worker";
+  return account.role === "user" ? "ASHA worker · User" : account.role[0].toUpperCase() + account.role.slice(1);
 }
 
 export function AccountMenu({ account, signingOut, onLogout }: {

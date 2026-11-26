@@ -3,6 +3,8 @@
 import sqlalchemy as sa
 from alembic import op
 
+from migrations.compat import add_column_if_missing, create_check_if_missing
+
 revision = "f31cc8b6a204"
 down_revision = "bd72f2a09411"
 branch_labels = None
@@ -10,8 +12,8 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("patients", sa.Column("anemia_status", sa.String(12), nullable=True))
-    op.create_check_constraint("ck_patient_anemia_status", "patients", "anemia_status IN ('confirmed', 'not_anemic')")
+    add_column_if_missing("patients", sa.Column("anemia_status", sa.String(12), nullable=True))
+    create_check_if_missing("patients", "ck_patient_anemia_status", "anemia_status IN ('confirmed', 'not_anemic')")
     op.create_table(
         "patient_referrals",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -25,8 +27,9 @@ def upgrade():
             "(status = 'closed' AND outcome IS NOT NULL AND length(trim(outcome)) > 0)",
             name="ck_patient_referral_outcome",
         ),
+        if_not_exists=True,
     )
-    op.create_index("ix_patient_referrals_patient_id", "patient_referrals", ["patient_id"])
+    op.create_index("ix_patient_referrals_patient_id", "patient_referrals", ["patient_id"], if_not_exists=True)
 
 
 def downgrade():

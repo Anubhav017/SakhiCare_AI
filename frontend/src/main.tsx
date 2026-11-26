@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { getDashboardSummary, type DashboardSummary, saveScreening, dateKey, listPatients, listFollowups, scheduleFollowup, completeFollowup, patientDetails, registerPatient, PossibleDuplicateError, type Records, type Followup, type ScreeningRisk } from "./records";
 import { AuthPage, restoreSession, signOut, type Account } from "./AuthPage";
 import { AdminDashboard } from "./AdminDashboard";
+import { OnboardingConsole } from "./OnboardingConsole";
 import { CarePathways } from "./CarePathways";
 import { AskGuidelines } from "./AskGuidelines";
 import { FollowupList, PatientDetail, followupStatus, patientRoute } from "./PatientWorkspace";
@@ -545,7 +546,10 @@ function App() {
 
   useEffect(() => {
     if (checkingSession) return;
-    if (account && (route === "/login" || route === "/signup")) {
+    if (account?.role === "super_admin" && route !== "/onboarding") {
+      history.replaceState(null, "", "/onboarding");
+      setRoute("/onboarding");
+    } else if (account && (route === "/login" || route === "/signup" || route === "/onboarding")) {
       history.replaceState(null, "", "/#today");
       setRoute("/");
     } else if (!account && route !== "/login" && route !== "/signup") {
@@ -555,7 +559,15 @@ function App() {
   }, [account, checkingSession, route]);
 
   if (account) {
-    const Workspace = account.role === "super_admin" ? AdminDashboard : Dashboard;
+    if (account.role === "super_admin") return <OnboardingConsole onSessionExpired={() => {
+      setAccount(null);
+      navigate("/login", true);
+    }} onLogout={async () => {
+      await signOut();
+      setAccount(null);
+      navigate("/login", true);
+    }} />;
+    const Workspace = account.role === "user" ? Dashboard : AdminDashboard;
     return <Workspace key={account.id} account={account} onSessionExpired={() => {
       returnToAsk.current = true;
       setAccount(null);
@@ -573,7 +585,7 @@ function App() {
       sessionExpired={returnToAsk.current}
       onLogin={user => {
         sessionCheck.current?.abort();
-        navigate(returnToAsk.current ? "/#ask" : "/#today", true);
+        navigate(user.role === "super_admin" ? "/onboarding" : returnToAsk.current ? "/#ask" : "/#today", true);
         returnToAsk.current = false;
         setAccount(user);
       }}

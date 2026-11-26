@@ -7,6 +7,9 @@ class AskRecordsRequest(BaseModel):
 
     question: str = Field(min_length=1, max_length=300)
     worker: str | None = Field(default=None, min_length=1, max_length=180)
+    previous_questions: list[Annotated[str, Field(min_length=1, max_length=300)]] = Field(
+        default_factory=list, max_length=3
+    )
 
 
 class AskRequest(BaseModel):

@@ -16,7 +16,7 @@ function hasThreeReportedMisses(logs: IfaIntakeLog[]) {
   return days[0] - days[1] === 86_400_000 && days[1] - days[2] === 86_400_000;
 }
 
-export function PregnancyCare({ patientId }: { patientId: string }) {
+export function PregnancyCare({ patientId, readOnly = false }: { patientId: string; readOnly?: boolean }) {
   const [data, setData] = useState<PregnancyCareData | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -100,23 +100,23 @@ export function PregnancyCare({ patientId }: { patientId: string }) {
       <p>Record dates from the patient’s or provider’s care record.</p></div></header>
     {error && <div role="alert"><p>{error}</p>{!data && <button className="btn subtle" type="button" onClick={() => setRetry(value => value + 1)}>Retry</button>}</div>}
     {!data && !error && <p role="status">Loading pregnancy care…</p>}
-    {data && !data.pregnancy && <form onSubmit={addPregnancy}>
+    {data && !data.pregnancy && (readOnly ? <p>No active pregnancy record.</p> : <form onSubmit={addPregnancy}>
       <p>No active pregnancy record. Enter only dates confirmed from a care record; SakhiCare does not estimate an EDD.</p>
       <label>Last menstrual period (optional)<input name="lmp_date" type="date" max={dateKey()} /></label>
       <label>Expected due date (EDD)<input name="edd_date" type="date" required /></label>
       <button className="btn" disabled={busy}>Save pregnancy record</button>
-    </form>}
+    </form>)}
     {data?.pregnancy && <>
       <dl className="patient-screening-summary">
         {data.pregnancy.lmp_date && <div><dt>LMP recorded</dt><dd>{formatDate(data.pregnancy.lmp_date)}</dd></div>}
         <div><dt>EDD recorded</dt><dd><strong>{formatDate(data.pregnancy.edd_date)}</strong></dd></div>
       </dl>
-      <button className="btn subtle" type="button" disabled={busy}
+      {!readOnly && <button className="btn subtle" type="button" disabled={busy}
         onClick={() => {
           if (window.confirm("End tracking for this pregnancy? Any planned ANC visits will be cancelled.")) {
             void mutate(() => closePregnancy(patientId, data.pregnancy!.id, "closed"), "Pregnancy tracking ended.");
           }
-        }}>End pregnancy tracking</button>
+        }}>End pregnancy tracking</button>}
 
       <section aria-labelledby="anc-visits-title">
         <header className="section-head"><h3 id="anc-visits-title">ANC visits</h3></header>
@@ -133,11 +133,11 @@ export function PregnancyCare({ patientId }: { patientId: string }) {
             </>}
           </div>
         </article>)}
-        <details><summary>Schedule an ANC visit</summary><form onSubmit={addVisit}>
+        {!readOnly && <details><summary>Schedule an ANC visit</summary><form onSubmit={addVisit}>
           <label>Visit date<input name="due_date" type="date" min={dateKey()} required /></label>
           <label>Facility (optional)<input name="facility" maxLength={120} /></label>
           <button className="btn" disabled={busy}>Schedule visit</button>
-        </form></details>
+        </form></details>}
       </section>
 
       <section aria-labelledby="ifa-title">
@@ -146,30 +146,30 @@ export function PregnancyCare({ patientId }: { patientId: string }) {
         {data.ifa_plan && <article className="row">
           <div><strong>Instructions recorded</strong><small>{data.ifa_plan.directions}</small><small>Source: {data.ifa_plan.source} · Starts {formatDate(data.ifa_plan.start_date)}</small></div>
         </article>}
-        <details><summary>{data.ifa_plan ? "Update recorded IFA instructions" : "Record provider’s IFA instructions"}</summary>
+        {!readOnly && <details><summary>{data.ifa_plan ? "Update recorded IFA instructions" : "Record provider’s IFA instructions"}</summary>
           <form onSubmit={savePlan}>
             <label>Plan start date<input name="start_date" type="date" defaultValue={data.ifa_plan?.start_date ?? dateKey()} max={dateKey()} required /></label>
             <label>Prescribing facility / clinician<input name="source" maxLength={120} defaultValue={data.ifa_plan?.source ?? ""} required /></label>
             <label>Instructions as prescribed<textarea name="directions" maxLength={240} rows={2} defaultValue={data.ifa_plan?.directions ?? ""} required /></label>
             <button className="btn" disabled={busy}>Save IFA instructions</button>
           </form>
-        </details>
+        </details>}
         {data.ifa_plan && <>
           {hasThreeReportedMisses(data.ifa_logs) && <div className="notice" role="status">
             Three consecutive days are recorded as missed. Check in with the patient and consult the ANM or clinician about next steps.
-            {!checkinScheduled && <button className="btn subtle" type="button" disabled={busy}
+            {!readOnly && !checkinScheduled && <button className="btn subtle" type="button" disabled={busy}
               onClick={() => void mutate(
                 () => scheduleFollowup(patientId, "IFA adherence check-in", dateKey(1)),
                 "Check-in added to the follow-up list.",
               ).then(saved => { if (saved) setCheckinScheduled(true); })}>Schedule check-in for tomorrow</button>}
           </div>}
-          <form onSubmit={logIntake}>
+          {!readOnly && <form onSubmit={logIntake}>
             <label>Date<input name="intake_date" type="date" defaultValue={dateKey()} min={data.ifa_plan.start_date} max={dateKey()} required /></label>
             <label>Reported intake status<select name="status" defaultValue="taken">
               <option value="taken">Taken</option><option value="missed">Missed</option><option value="unknown">Not known</option>
             </select></label>
             <button className="btn subtle" disabled={busy}>Save daily status</button>
-          </form>
+          </form>}
           <h4>Recent reported intake</h4>
           {!data.ifa_logs.length && <p>No intake statuses recorded.</p>}
           {data.ifa_logs.map(log => <article className="row" key={log.id}>

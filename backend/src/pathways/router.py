@@ -22,6 +22,6 @@ def change_step(run_id: int, step_id: int, body: CarePathwayStepUpdate,
                 request: Request, response: Response, db: Session = Depends(get_db)):
     response.headers["Cache-Control"] = "private, no-store"
     user = get_session(request, db)
-    if user.role != "asha":
+    if user.role != "user":
         raise HTTPException(403, "Only ASHA workers can update pathway steps")
     return service.update_step(db, user, run_id, step_id, body.completed)

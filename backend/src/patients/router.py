@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from src.User.browser_session import get_session, require_session_header
 from src.User.models import UserModel
+from src.User.roles import is_supervisor
 from src.patients import controller
 from src.patients.Schema import (AntenatalVisitCreate, AntenatalVisitResponse, AntenatalVisitStatusUpdate,
                                  AnemiaAssessment, ConsentUpdateSchema, IfaIntakeInput, IfaIntakeResponse,
@@ -33,7 +34,7 @@ def create_patient(
 ):
     asha = get_session(request, db)
     response.headers["Cache-Control"] = "no-store"
-    if asha.role != "asha":
+    if asha.role != "user":
         raise HTTPException(403, "Only ASHA workers can register patients")
     return controller.create_patient(db, asha, body)
 
@@ -51,8 +52,8 @@ def read_team_report(
     worker_id: int | None = None, village: str | None = None,
 ):
     user = get_session(request, db)
-    if user.role != "super_admin":
-        raise HTTPException(403, "Only Super Admin can view team reports")
+    if not is_supervisor(user):
+        raise HTTPException(403, "Supervisor access required for team reports")
     if start is not None and end is not None and start > end:
         raise HTTPException(422, "Start date must be on or before end date")
     response.headers["Cache-Control"] = "private, no-store"
@@ -83,7 +84,7 @@ def save_screening(
 ):
     user = get_session(request, db)
     response.headers["Cache-Control"] = "private, no-store"
-    if user.role != "asha":
+    if user.role != "user":
         raise HTTPException(403, "Only ASHA workers can record Hb")
     return controller.save_screening(db, user, patient_id, body)
 
@@ -107,7 +108,7 @@ def upload_patient_report(
     file: UploadFile = File(...), db: Session = Depends(get_db),
 ):
     user = get_session(request, db)
-    if user.role != "asha":
+    if user.role != "user":
         raise HTTPException(403, "Only ASHA workers can upload patient reports")
     patient = controller.get_patient(db, user, patient_id)
     filename = (file.filename or "").replace(chr(92), "/").rsplit("/", 1)[-1]
@@ -124,7 +125,7 @@ def upload_patient_report(
 
 def require_asha_session(request: Request, db: Session) -> UserModel:
     user = get_session(request, db)
-    if user.role != "asha":
+    if user.role != "user":
         raise HTTPException(403, "Only ASHA workers can update patient assessments and referrals")
     return user
 

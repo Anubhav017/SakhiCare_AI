@@ -1,6 +1,6 @@
 import { VoiceQuestion } from "./VoiceQuestion";
 import { AskRecords } from "./AskRecords";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useWorkspaceGreeting } from "./workspaceGreeting";
 
 type Language = "hi" | "en";
@@ -49,24 +49,24 @@ type AskProps = {
 export function AskGuidelines(props: AskProps) {
   const [mode, setMode] = useState<"guidelines" | "records">("guidelines");
 
-  const sourceControl = (
-    <select className="ask-source-select" aria-label="Answer source" value={mode}
-      onChange={event => setMode(event.target.value === "records" ? "records" : "guidelines")}>
-      <option value="guidelines">Guidelines</option>
-      <option value="records">Records</option>
-    </select>
-  );
-
-  return <>
-    <div hidden={mode !== "guidelines"}>
-      <GuidelineChat {...props} active={mode === "guidelines"} sourceControl={sourceControl} />
+  return <div className="ask-source-shell">
+    <div className="ask-source-tabs" role="tablist" aria-label="Ask SakhiCare source">
+      <button id="ask-guidelines-tab" type="button" role="tab" aria-selected={mode === "guidelines"}
+        aria-controls="ask-guidelines-panel" onClick={() => setMode("guidelines")}>Guidelines</button>
+      <button id="ask-records-tab" type="button" role="tab" aria-selected={mode === "records"}
+        aria-controls="ask-records-panel" onClick={() => setMode("records")}>Patient records</button>
     </div>
-    {mode === "records" && <AskRecords {...props} sourceControl={sourceControl} />}
-  </>;
+    <div id="ask-guidelines-panel" role="tabpanel" aria-labelledby="ask-guidelines-tab" hidden={mode !== "guidelines"}>
+      <GuidelineChat {...props} active={mode === "guidelines"} />
+    </div>
+    <div id="ask-records-panel" role="tabpanel" aria-labelledby="ask-records-tab" hidden={mode !== "records"}>
+      {mode === "records" && <AskRecords {...props} />}
+    </div>
+  </div>;
 }
 
-function GuidelineChat({ accountName, backLabel, onSessionExpired, active, sourceControl, isAdmin }:
-  AskProps & { active: boolean; sourceControl: ReactNode }) {
+function GuidelineChat({ accountName, backLabel, onSessionExpired, active, isAdmin }:
+  AskProps & { active: boolean }) {
   const greeting = useWorkspaceGreeting(accountName);
   const heading = useRef<HTMLHeadingElement>(null);
   const request = useRef<AbortController | null>(null);
@@ -201,9 +201,9 @@ function GuidelineChat({ accountName, backLabel, onSessionExpired, active, sourc
         if (!controller.signal.aborted) {
           const code = payload?.detail?.code;
           if (code === "reindex_required") {
-            setError("Guidelines need to be reindexed after an embedding model change. Contact your Super Admin.");
+            setError("Guidelines need to be reindexed after an embedding model change. Contact your Admin.");
           } else if (code === "model_unavailable") {
-            setError("The configured AI model is unavailable. Ask your Super Admin to check the model settings.");
+            setError("The configured AI model is unavailable. Ask your Admin to check the model settings.");
           } else {
             setError("Guideline search is unavailable. Please try again.");
           }
@@ -333,7 +333,6 @@ function GuidelineChat({ accountName, backLabel, onSessionExpired, active, sourc
           onChange={event => setQuestion(event.target.value)} />
         <small id="question-guidance">Keep patient details out. Voice input uses your browser's speech service.</small>
         <div className="ask-actions">
-          {sourceControl}
           <label>
             <select aria-label="Answer language" value={language} onChange={event => {
               const nextLanguage = event.target.value as Language;

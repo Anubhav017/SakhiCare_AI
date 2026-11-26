@@ -162,7 +162,7 @@ export function PatientDetail({ patient, followups, backTo, backLabel, onSchedul
         </> : <p className="empty">No screening recorded yet.</p>}
       </section>
       <PatientCare key={patient.id} patient={patient} onPatientChange={onPatientChange} />
-      <PregnancyCare key={`pregnancy-${patient.id}`} patientId={patient.id} />
+      <PregnancyCare key={`pregnancy-${patient.id}`} patientId={patient.id} readOnly={pathwayReadOnly} />
       <CarePathways patients={[patient]} patientId={patient.id} readOnly={pathwayReadOnly} />
       <section className="panel followup-panel" aria-label="Record activity">
         <header className="section-head"><h2>Record activity</h2></header>

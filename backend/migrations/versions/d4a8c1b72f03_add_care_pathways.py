@@ -23,10 +23,11 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.CheckConstraint("status IN ('active', 'completed', 'paused', 'cancelled')", name="ck_care_pathway_run_status"),
         sa.UniqueConstraint("source_key", name="uq_care_pathway_source_key"),
+        if_not_exists=True,
     )
-    op.create_index("ix_care_pathway_runs_patient_id", "care_pathway_runs", ["patient_id"])
-    op.create_index("ix_care_pathway_runs_status", "care_pathway_runs", ["status"])
-    op.create_index("ix_care_pathway_runs_created_by_user_id", "care_pathway_runs", ["created_by_user_id"])
+    op.create_index("ix_care_pathway_runs_patient_id", "care_pathway_runs", ["patient_id"], if_not_exists=True)
+    op.create_index("ix_care_pathway_runs_status", "care_pathway_runs", ["status"], if_not_exists=True)
+    op.create_index("ix_care_pathway_runs_created_by_user_id", "care_pathway_runs", ["created_by_user_id"], if_not_exists=True)
     op.create_table(
         "care_pathway_steps",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -39,14 +40,10 @@ def upgrade() -> None:
         sa.Column("completed_by_user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="SET NULL")),
         sa.CheckConstraint("status IN ('pending', 'completed', 'skipped')", name="ck_care_pathway_step_status"),
         sa.UniqueConstraint("run_id", "position", name="uq_care_pathway_step_position"),
+        if_not_exists=True,
     )
-    op.create_index("ix_care_pathway_steps_run_id", "care_pathway_steps", ["run_id"])
+    op.create_index("ix_care_pathway_steps_run_id", "care_pathway_steps", ["run_id"], if_not_exists=True)
 
 
 def downgrade() -> None:
-    op.drop_index("ix_care_pathway_steps_run_id", table_name="care_pathway_steps")
-    op.drop_table("care_pathway_steps")
-    op.drop_index("ix_care_pathway_runs_created_by_user_id", table_name="care_pathway_runs")
-    op.drop_index("ix_care_pathway_runs_status", table_name="care_pathway_runs")
-    op.drop_index("ix_care_pathway_runs_patient_id", table_name="care_pathway_runs")
-    op.drop_table("care_pathway_runs")
+    raise RuntimeError("Downgrading would discard patient care pathways and their progress.")

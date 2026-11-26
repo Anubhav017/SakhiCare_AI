@@ -2,13 +2,35 @@ import { useState, type FormEvent } from "react";
 
 export type Account = {
   id: number; name: string; username: string; email: string;
-  role: "asha" | "super_admin";
+  role: "user" | "manager" | "executive" | "admin" | "super_admin";
 };
 
 export type ManagedAsha = Pick<Account, "id" | "name" | "username">;
+export type ManagedMember = ManagedAsha & { email: string; role: Exclude<Account["role"], "super_admin">; reports_to_id: number | null };
+export type OnboardedAdmin = Pick<Account, "id" | "name" | "username" | "email"> & { role: "admin" };
 
 export function listManagedAshas(): Promise<ManagedAsha[]> {
   return request("/user/managed-ashas", { cache: "no-store" }, "Could not load your ASHA workers.");
+}
+
+export function listManagedHierarchy(): Promise<ManagedMember[]> {
+  return request("/user/hierarchy", { cache: "no-store" }, "Could not load the role hierarchy.");
+}
+
+export function updateManagedMember(id: number, role: Exclude<Account["role"], "admin" | "super_admin">, reports_to_id: number): Promise<ManagedMember> {
+  return request(`/user/hierarchy/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", "X-SakhiCare-Session": "1" },
+    body: JSON.stringify({ role, reports_to_id }),
+  }, "Could not update this person's role and reporting manager.");
+}
+
+export function listOrganizationAdmins(): Promise<OnboardedAdmin[]> {
+  return request("/user/onboarding/admins", { cache: "no-store" }, "Could not load client Admin accounts.");
+}
+
+export function createOrganizationAdmin(body: { name: string; username: string; email: string; password: string }): Promise<OnboardedAdmin> {
+  return request("/user/onboarding/admins", post(body), "Could not create the client Admin account.");
 }
 type Mode = "login" | "signup";
 
@@ -21,7 +43,7 @@ async function request<T>(path: string, options: RequestInit, fallback: string):
   }
   const data = await response.json().catch(() => null);
   if (response.ok && data !== null) return data as T;
-  if (response.status === 400 && typeof data?.detail === "string") throw new Error(data.detail);
+  if (response.status >= 400 && response.status < 500 && typeof data?.detail === "string") throw new Error(data.detail);
   if (response.status === 401) throw new Error("Incorrect username or password.");
   throw new Error(fallback);
 }
@@ -72,7 +94,7 @@ function post(body: object): RequestInit {
 type Props = { mode: Mode; sessionExpired?: boolean; navigate: (path: string) => void; onLogin: (account: Account) => void };
 
 export function AuthPage({ mode, navigate, onLogin, sessionExpired }: Props) {
-  const [role, setRole] = useState<Account["role"]>("asha");
+  const [role, setRole] = useState<Account["role"]>("user");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [createdUsername, setCreatedUsername] = useState("");
@@ -134,8 +156,11 @@ export function AuthPage({ mode, navigate, onLogin, sessionExpired }: Props) {
                 <fieldset className="login-role" disabled={saving}>
                   <legend>Role</legend>
                   <div className="login-role-options">
-                    <label><input type="radio" name="role" value="asha" checked={role === "asha"} onChange={() => { setRole("asha"); setError(""); }} /><span>ASHA Worker</span></label>
-                    <label><input type="radio" name="role" value="super_admin" checked={role === "super_admin"} onChange={() => { setRole("super_admin"); setError(""); }} /><span>Admin</span></label>
+                    <label><input type="radio" name="role" value="user" checked={role === "user"} onChange={() => { setRole("user"); setError(""); }} /><span>ASHA Worker · User</span></label>
+                    <label><input type="radio" name="role" value="manager" checked={role === "manager"} onChange={() => { setRole("manager"); setError(""); }} /><span>Manager</span></label>
+                    <label><input type="radio" name="role" value="executive" checked={role === "executive"} onChange={() => { setRole("executive"); setError(""); }} /><span>Executive</span></label>
+                    <label><input type="radio" name="role" value="admin" checked={role === "admin"} onChange={() => { setRole("admin"); setError(""); }} /><span>Admin</span></label>
+                    <label><input type="radio" name="role" value="super_admin" checked={role === "super_admin"} onChange={() => { setRole("super_admin"); setError(""); }} /><span>SakhiCare Super Admin</span></label>
                   </div>
                 </fieldset>
               )}

@@ -28,6 +28,5 @@ def upgrade():
     """)
 
 
-def downgrade():
-    op.drop_constraint("ck_screening_risk", "patient_screenings", type_="check")
-    op.drop_column("patient_screenings", "risk")
+def downgrade() -> None:
+    raise RuntimeError("Downgrading would discard recorded screening risk.")

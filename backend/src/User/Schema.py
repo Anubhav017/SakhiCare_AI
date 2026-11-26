@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import ConfigDict, BaseModel
+from pydantic import ConfigDict, BaseModel, Field
 
 class UserSchema(BaseModel):
     name: str
@@ -24,11 +24,11 @@ class UserLoginResponseSchema(BaseModel):
 
 class BrowserLoginSchema(UserLoginSchema):
     remember: bool = False
-    role: Literal["asha", "super_admin"] | None = None
+    role: Literal["user", "manager", "executive", "admin", "super_admin"] | None = None
 
 
 class BrowserAccountSchema(UserResponseSchema):
-    role: Literal["asha", "super_admin"]
+    role: Literal["user", "manager", "executive", "admin", "super_admin"]
 
 
 class ManagedAshaSchema(BaseModel):
@@ -37,3 +37,28 @@ class ManagedAshaSchema(BaseModel):
     id: int
     name: str
     username: str
+
+
+class ManagedMemberSchema(BaseModel):
+    id: int
+    name: str
+    username: str
+    email: str
+    role: Literal["user", "manager", "executive", "admin"]
+    reports_to_id: int | None
+
+
+class MemberAccessUpdateSchema(BaseModel):
+    role: Literal["user", "manager", "executive"]
+    reports_to_id: int
+
+
+class AdminOnboardingSchema(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    username: str = Field(min_length=3, max_length=64)
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=12, max_length=128)
+
+
+class OnboardedAdminSchema(UserResponseSchema):
+    role: Literal["admin"]

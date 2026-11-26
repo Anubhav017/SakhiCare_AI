@@ -18,7 +18,7 @@ def pdf_context(
     ]
     if guidelines_only:
         document_scope.append(
-            RagDocument.user_id.in_(select(UserModel.id).where(UserModel.role == "super_admin"))
+            RagDocument.user_id.in_(select(UserModel.id).where(UserModel.role == "admin"))
         )
     if document_id is not None:
         document_scope.append(RagDocument.id == document_id)
@@ -29,7 +29,7 @@ def pdf_context(
         if ready_documents.first() is not None:
             raise HTTPException(409, {
                 "code": "reindex_required",
-                "message": "Ask is waiting for guidelines to be reindexed with the configured embedding model. Contact your Super Admin.",
+                "message": "Ask is waiting for guidelines to be reindexed with the configured embedding model. Contact your Admin.",
             })
         return "", []
 

@@ -69,8 +69,8 @@ def document_status(
 
 
 def _owned_guideline(document_id: int, user: UserModel, db: Session) -> RagDocument:
-    if user.role != "super_admin":
-        raise HTTPException(403, "Super Admin access required")
+    if user.role != "admin":
+        raise HTTPException(403, "Admin access required")
     document = (
         db.query(RagDocument)
         .filter_by(id=document_id, user_id=user.id)

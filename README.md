@@ -26,10 +26,11 @@ Keep your existing backend/.env settings for DB_CONNECTION, SECRET_KEY, and ALGO
 docker compose --env-file backend/.env up -d --wait postgres
 Set-Location backend
 uv sync --locked
+uv run alembic upgrade head
 uv run python -m uvicorn src.main:app --reload
 ```
 
-For a fresh local database, set `AUTO_CREATE_TABLES=true` in `backend/.env` before starting FastAPI. Startup enables pgvector and creates missing tables. This setting cannot update existing columns or record an Alembic revision. Use Alembic for later schema changes and verify the schema before reconciling its revision history.
+Local development, Docker Compose, staging, and production use the same Alembic migration history. On an empty database, Alembic builds the schema from the full revision chain. On a known older database, it applies only pending revisions and preserves patient and user rows. Keep `AUTO_CREATE_TABLES=false`; `create_all` is not a schema-upgrade tool.
 
 Open http://127.0.0.1:8000/docs for the API. If you use a PostgreSQL server other than the bundled container, it needs pgvector installed and the migration account needs permission to enable the extension, unless an administrator already enabled it.
 
@@ -56,14 +57,15 @@ Registration and sign-in call FastAPI through Vite. The Patients screen loads an
 
 ### Apply database upgrades
 
-Existing databases need pending Alembic upgrades before using the new consent and patient activity fields. From the repository root, run:
+Apply pending schema upgrades from `backend/` with:
 
 ```powershell
-Set-Location backend
 uv run alembic upgrade head
 ```
 
-For a brand-new local database, `AUTO_CREATE_TABLES=true` creates the current tables. Alembic is the path for upgrading an existing database; `AUTO_CREATE_TABLES` does not alter existing tables.
+This is safe to repeat. It applies each pending revision once for that database and preserves existing patient, user, and care records. A fresh database receives the full schema through the same migration chain.
+
+When a SQLAlchemy model changes, create and commit a reviewed Alembic revision with that model change. From `backend/`, use `uv run alembic revision --autogenerate -m "describe the schema change"`, review the generated upgrade and downgrade carefully, then use `uv run alembic upgrade head`. See [backend/migrations/README](backend/migrations/README) for add, alter, rename, and removal rules. API GET/insert/update/delete behavior does not itself require a migration unless the stored schema or data format changes.
 
 ### Pregnancy, ANC, and IFA tracking
 
@@ -124,7 +126,7 @@ POSTGRES_PASSWORD=replace-me
 DB_CONNECTION=postgresql+psycopg://postgres:replace-me@127.0.0.1:5433/sakhicare
 SECRET_KEY=replace-with-a-long-random-secret
 ALGORITHM=HS256
-AUTO_CREATE_TABLES=true
+AUTO_CREATE_TABLES=false
 SESSION_COOKIE_SECURE=false
 CHAT_MODEL=gpt-4.1-mini
 EMBEDDING_MODEL=text-embedding-3-small
@@ -147,7 +149,7 @@ Ask Records can also prepare a care-record change. An ASHA reviews the patient a
 
 Supported Ask changes include patient registration with confirmed consent, patient name/village/age correction, Hb screening, anemia assessment, consent updates, follow-up scheduling/completion/cancellation, and referral creation or progress updates. Cancelling a follow-up archives it so it disappears from active lists while staying in history. Ask does not hard-delete patient, Hb, referral, or consent history. Super Admin remains read-only in Ask Records.
 
-The Docker API entrypoint applies Alembic migrations before starting, including the Ask draft and follow-up archive schema. For a local backend started directly with `uv`, run `uv run alembic upgrade head` from `backend/` after pulling schema changes.
+The Docker API entrypoint applies Alembic migrations before starting. A local backend started directly with `uv` runs the same `uv run alembic upgrade head` command before Uvicorn.
 
 ## Document indexing worker
 
@@ -169,4 +171,29 @@ Uploaded PDFs are retained in the database along with their vectors, so include 
 
 The generic task API has been retired from the SakhiCare app. The historical baseline migration and any existing `user_tasks` table are retained so existing databases and task data are not dropped; this table is no longer exposed by the API or used by Ask.
 
+## Role hierarchy
+
+SakhiCare uses four roles: `admin` → `executive` → `manager` → `user` (ASHA worker). The self-referencing `users.admin_id` field records each person's direct manager. Supervisors can read patient and care records for descendant ASHA users; only the assigned `user` can create or update care records. Run the role migration with the normal startup/migration command before signing in with the new role names.
+
+Existing `asha` accounts migrate to `user`. Existing `super_admin` accounts from the old hierarchy migration migrate to client `admin`; create the separate in-house Super Admin as described below. To create local demo Executive and Manager accounts under Anubhav's Admin, set a private demo password of at least eight characters and run from `backend/` after the database and migrations are ready:
+
+```powershell
+$env:DEMO_ACCOUNT_PASSWORD = "choose-a-local-demo-password"
+uv run python -m src.User.seed_demo_roles
+```
+
+The script is safe to rerun. It creates `demo_executive` and `demo_manager`, then places existing direct-report ASHA users under the demo Manager. Both demo accounts use the password supplied in `DEMO_ACCOUNT_PASSWORD`; it is not stored in the repository.
+
+### In-house client onboarding
+
+SakhiCare has one separate in-house `super_admin` account for creating client Admins. It is not Anubhav's client Admin account and it does not appear in a client's Workspace hierarchy. After migrations have run, set a private password of at least 12 characters and create the account from `backend/`:
+
+```powershell
+$env:ONBOARDING_ADMIN_PASSWORD = "choose-a-private-onboarding-password"
+uv run python -m src.User.seed_super_admin
+```
+
+Optional settings are `ONBOARDING_ADMIN_USERNAME`, `ONBOARDING_ADMIN_EMAIL`, and `ONBOARDING_ADMIN_NAME`. Open `/onboarding` and sign in with the Super Admin role to create client Admin accounts. A client Admin then signs in at the regular app and manages their own User, Manager, and Executive roles in Workspace, including which ASHA users can write through Ask. The database enforces that only one account can have the `super_admin` role.
+
 PDFs indexed with a different embedding model stay listed, but must be re-uploaded to regenerate vectors for the configured OpenAI embedding model.
+

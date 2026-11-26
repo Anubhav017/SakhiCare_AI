@@ -27,7 +27,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sakhicare-local}
       SECRET_KEY: ${SECRET_KEY:-}
       ALGORITHM: HS256
-      AUTO_CREATE_TABLES: "true"
+      AUTO_CREATE_TABLES: "false"
       SESSION_COOKIE_SECURE: "false"
       CHAT_PROVIDER: openai
       EMBEDDING_PROVIDER: openai

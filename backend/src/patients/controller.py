@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from src.User.models import UserModel
+from src.User.roles import is_supervisor, managed_user_ids
 from src.followups.models import FollowupModel
 from src.patients.models import (AntenatalVisit, HbReading, IfaIntakeLog, IfaPlan, PatientAuditEvent,
                                  PatientModel, PatientReferral, PatientReport, PatientScreening, PregnancyEpisode)
@@ -16,9 +17,8 @@ from src.pathways.service import start_referral_pathway, start_screening_pathway
 
 
 def patient_scope(user: UserModel):
-    if user.role == "super_admin":
-        scope = select(UserModel.id).where(UserModel.role == "asha", UserModel.admin_id == user.id)
-        return PatientModel.asha_user_id.in_(scope)
+    if is_supervisor(user):
+        return PatientModel.asha_user_id.in_(managed_user_ids(user.id))
     return PatientModel.asha_user_id == user.id
 
 
@@ -381,7 +381,7 @@ def dashboard_summary(db: Session, user: UserModel):
 def team_report(db: Session, user: UserModel, start: date | None, end: date | None,
                 worker_id: int | None, village: str | None):
     workers = select(UserModel.id, UserModel.name).where(
-        UserModel.admin_id == user.id, UserModel.role == "asha",
+        UserModel.id.in_(managed_user_ids(user.id)),
     )
     if worker_id is not None:
         workers = workers.where(UserModel.id == worker_id)

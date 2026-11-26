@@ -14,6 +14,7 @@ from src.patients.models import (AntenatalVisit, IfaIntakeLog, PatientModel, Pat
                                  PatientScreening, PregnancyEpisode)
 from src.pathways.models import CarePathwayRun, CarePathwayStep
 from src.User.models import UserModel
+from src.User.roles import is_supervisor, managed_user_ids
 from src.utils.ai_client import call_tool
 
 
@@ -86,13 +87,18 @@ def _record_intent(question: str, is_admin: bool) -> str | None:
         if any(token in q for token in ("attended", "visited")):
             return "referrals_attended"
         return "referrals_open"
-    if any(token in q for token in ("follow up", "followup")):
+    if any(token in q for token in ("follow up", "followup", "follow ups")):
         if any(token in q for token in ("complete", "done")):
             return "followups_completed"
         if any(token in q for token in ("upcoming", "future")):
             return "followups_upcoming"
         return "due_followups"
-    if any(token in q for token in ("patient count", "how many patients", "total patients", "patient total")):
+    asks_patient_count = (
+        any(token in q for token in ("patient count", "total patients", "patient total"))
+        or re.search(r"\bhow many\s+(?:total\s+)?patients?\b", q) is not None
+        or re.search(r"\bnumber of\s+(?:total\s+)?patients?\b", q) is not None
+    )
+    if asks_patient_count:
         if is_admin and any(token in q for token in ("each asha", "by asha", "per asha")):
             return "patients_by_worker"
         return "patient_count"
@@ -354,7 +360,10 @@ def _read_patient_matches(db: Session, user: UserModel, patient_name: str):
             "patients": [dict(row) for row in rows.mappings()], "truncated": total > 50}
 
 
-def read_records(db: Session, user: UserModel, question: str, worker: str | None = None):
+def read_records(
+    db: Session, user: UserModel, question: str, worker: str | None = None,
+    previous_questions: list[str] | None = None,
+):
     pathway_patient = _pathway_patient_search(question)
     if pathway_patient:
         query = (
@@ -391,7 +400,7 @@ def read_records(db: Session, user: UserModel, question: str, worker: str | None
             "answer": f"Found {total} matching patient records.", "total": total,
             "patients": [dict(row) for row in rows.mappings()], "truncated": total > 50,
         }
-    intent = _record_intent(question, user.role == "super_admin")
+    intent = _record_intent(question, is_supervisor(user))
     if intent is None:
         try:
             arguments = call_tool(
@@ -401,37 +410,47 @@ def read_records(db: Session, user: UserModel, question: str, worker: str | None
                     "Available facts: assigned patient demographics, current Hb screening and ASHA-recorded risk, anemia assessment, "
                     "pregnancy dates, planned ANC visits, reported IFA intake, follow-ups, referrals, and Care Pathway status. "
                     "Select exactly one supported query tool. "
+                    "When recent conversation questions are provided, use them only to resolve clear references "
+                    "such as 'she', 'those patients', or 'that follow-up' in the current question. Answer the current "
+                    "question only; do not repeat prior queries or carry forward filters unless the user refers to them. "
+                    "If the reference is unclear, return intent=unknown and ask for the patient or topic. "
                     "Never infer a diagnosis, invent records, request SQL, or propose a database change. "
                     "For a write, delete, or update request return intent=unknown; mutations require a separate "
                     "preview and explicit confirmation flow. Use only filters the user clearly asked for. "
-                    "A Super Admin can query only their managed ASHA team; an ASHA can query only their assigned patients."
+                    "A Manager, Executive, or Admin can query only their descendant users; a User can query only their assigned patients."
                 ),
-                user=question,
+                user=(
+                    "Recent read-only conversation questions (oldest first):\n"
+                    + "\n".join(f"User: {item}" for item in (previous_questions or [])[-3:])
+                    + "\nCurrent question (answer this only):\n"
+                    + question
+                    if previous_questions else question
+                ),
             )
             plan = RecordQueryArgs.model_validate(arguments) if arguments else None
         except (HTTPException, ValidationError):
             plan = None
         if plan is None:
-            return {"answer": "I couldn't map that to an available read-only records query. Try asking about assigned patients, Hb results or risk, anemia assessments, referrals, follow-ups, or care pathways. Record changes need a review and confirmation step.", "total": 0}
+            return {"answer": "I can answer questions from the records available to your account, but I couldn't identify which record or care topic you mean. Try naming a patient or asking about Hb results, risk, anemia assessments, referrals, follow-ups, or care pathways. If you meant your previous question, add the patient or topic so I can look it up safely. Record changes need a review and confirmation step.", "total": 0}
         result = _read_planned_records(db, user, plan)
         if result is not None:
             return result
-        return {"answer": "I couldn't map that to an available read-only records query. Try asking about assigned patients, Hb results or risk, anemia assessments, referrals, follow-ups, or care pathways. Record changes need a review and confirmation step.", "total": 0}
+        return {"answer": "I can answer questions from the records available to your account, but I couldn't identify which record or care topic you mean. Try naming a patient or asking about Hb results, risk, anemia assessments, referrals, follow-ups, or care pathways. If you meant your previous question, add the patient or topic so I can look it up safely. Record changes need a review and confirmation step.", "total": 0}
     if intent not in {"patient_count", "patients_by_worker", "worker_patients", "due_followups"}:
         return _read_dynamic_records(db, user, intent)
     question = intent
     scope = patient_scope(user)
-    if question == "patient_count" and user.role != "super_admin":
+    if question == "patient_count" and not is_supervisor(user):
         count = db.scalar(select(func.count()).select_from(PatientModel).where(scope))
         return {"count": count}
 
     if question in ("patient_count", "patients_by_worker"):
-        if user.role != "super_admin":
-            raise HTTPException(403, "Super Admin access required")
+        if not is_supervisor(user):
+            raise HTTPException(403, "Supervisor access required")
         rows = db.execute(
             select(UserModel.name.label("worker"), func.count(PatientModel.id).label("count"))
             .outerjoin(PatientModel, PatientModel.asha_user_id == UserModel.id)
-            .where(UserModel.role == "asha", UserModel.admin_id == user.id)
+            .where(UserModel.id.in_(managed_user_ids(user.id)))
             .group_by(UserModel.id, UserModel.name)
             .order_by(UserModel.name, UserModel.id)
         )
@@ -442,12 +461,12 @@ def read_records(db: Session, user: UserModel, question: str, worker: str | None
         return result
 
     if question == "worker_patients":
-        if user.role != "super_admin":
-            raise HTTPException(403, "Super Admin access required")
+        if not is_supervisor(user):
+            raise HTTPException(403, "Supervisor access required")
         if not worker or not worker.strip():
             raise HTTPException(422, "Enter the ASHA name or username")
         lookup = worker.strip().lower()
-        team = select(UserModel).where(UserModel.role == "asha", UserModel.admin_id == user.id)
+        team = select(UserModel).where(UserModel.id.in_(managed_user_ids(user.id)))
         selected = db.scalar(team.where(func.lower(UserModel.username) == lookup))
         if selected is None:
             matches = db.scalars(team.where(func.lower(UserModel.name) == lookup).limit(2)).all()

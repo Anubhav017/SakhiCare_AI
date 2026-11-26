@@ -5,6 +5,7 @@ from src.User.Schema import UserSchema, UserLoginSchema, UserLoginResponseSchema
 from fastapi import status, Request, HTTPException
 
 from src.User.models import UserModel
+from src.User.roles import managed_users
 import jwt
 
 from datetime import datetime, timedelta
@@ -85,9 +86,4 @@ def get_password_hash(password: str):
     return password_hash.hash(password)
 
 def managed_ashas(db: Session, admin_id: int) -> list[UserModel]:
-    query = (
-        select(UserModel)
-        .where(UserModel.role == "asha", UserModel.admin_id == admin_id)
-        .order_by(UserModel.name, UserModel.id)
-    )
-    return list(db.scalars(query))
+    return managed_users(db, admin_id)

@@ -21,16 +21,18 @@ def upgrade() -> None:
         sa.Column("recorded_by_user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="SET NULL")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.CheckConstraint("status IN ('active', 'completed', 'closed')", name="ck_patient_pregnancy_status"),
+        if_not_exists=True,
     )
-    op.create_index("ix_patient_pregnancies_patient_id", "patient_pregnancies", ["patient_id"])
-    op.create_index("ix_patient_pregnancies_status", "patient_pregnancies", ["status"])
-    op.create_index("ix_patient_pregnancies_recorded_by_user_id", "patient_pregnancies", ["recorded_by_user_id"])
+    op.create_index("ix_patient_pregnancies_patient_id", "patient_pregnancies", ["patient_id"], if_not_exists=True)
+    op.create_index("ix_patient_pregnancies_status", "patient_pregnancies", ["status"], if_not_exists=True)
+    op.create_index("ix_patient_pregnancies_recorded_by_user_id", "patient_pregnancies", ["recorded_by_user_id"], if_not_exists=True)
     op.create_index(
         "uq_patient_pregnancy_active",
         "patient_pregnancies",
         ["patient_id"],
         unique=True,
         postgresql_where=sa.text("status = 'active'"),
+    if_not_exists=True,
     )
 
     op.create_table(
@@ -44,10 +46,11 @@ def upgrade() -> None:
         sa.Column("recorded_by_user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="SET NULL")),
         sa.Column("completed_at", sa.DateTime(timezone=True)),
         sa.CheckConstraint("status IN ('planned', 'completed', 'cancelled')", name="ck_patient_anc_visit_status"),
+        if_not_exists=True,
     )
-    op.create_index("ix_patient_anc_visits_pregnancy_id", "patient_anc_visits", ["pregnancy_id"])
-    op.create_index("ix_patient_anc_visits_status", "patient_anc_visits", ["status"])
-    op.create_index("ix_patient_anc_visits_recorded_by_user_id", "patient_anc_visits", ["recorded_by_user_id"])
+    op.create_index("ix_patient_anc_visits_pregnancy_id", "patient_anc_visits", ["pregnancy_id"], if_not_exists=True)
+    op.create_index("ix_patient_anc_visits_status", "patient_anc_visits", ["status"], if_not_exists=True)
+    op.create_index("ix_patient_anc_visits_recorded_by_user_id", "patient_anc_visits", ["recorded_by_user_id"], if_not_exists=True)
 
     op.create_table(
         "patient_ifa_plans",
@@ -58,8 +61,9 @@ def upgrade() -> None:
         sa.Column("directions", sa.String(length=240), nullable=False),
         sa.Column("recorded_by_user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="SET NULL")),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        if_not_exists=True,
     )
-    op.create_index("ix_patient_ifa_plans_recorded_by_user_id", "patient_ifa_plans", ["recorded_by_user_id"])
+    op.create_index("ix_patient_ifa_plans_recorded_by_user_id", "patient_ifa_plans", ["recorded_by_user_id"], if_not_exists=True)
 
     op.create_table(
         "patient_ifa_intake_logs",
@@ -71,23 +75,11 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.CheckConstraint("status IN ('taken', 'missed', 'unknown')", name="ck_patient_ifa_intake_status"),
         sa.UniqueConstraint("pregnancy_id", "intake_date", name="uq_patient_ifa_intake_day"),
+        if_not_exists=True,
     )
-    op.create_index("ix_patient_ifa_intake_logs_pregnancy_id", "patient_ifa_intake_logs", ["pregnancy_id"])
-    op.create_index("ix_patient_ifa_intake_logs_recorded_by_user_id", "patient_ifa_intake_logs", ["recorded_by_user_id"])
+    op.create_index("ix_patient_ifa_intake_logs_pregnancy_id", "patient_ifa_intake_logs", ["pregnancy_id"], if_not_exists=True)
+    op.create_index("ix_patient_ifa_intake_logs_recorded_by_user_id", "patient_ifa_intake_logs", ["recorded_by_user_id"], if_not_exists=True)
 
 
 def downgrade() -> None:
-    op.drop_index("ix_patient_ifa_intake_logs_recorded_by_user_id", table_name="patient_ifa_intake_logs")
-    op.drop_index("ix_patient_ifa_intake_logs_pregnancy_id", table_name="patient_ifa_intake_logs")
-    op.drop_table("patient_ifa_intake_logs")
-    op.drop_index("ix_patient_ifa_plans_recorded_by_user_id", table_name="patient_ifa_plans")
-    op.drop_table("patient_ifa_plans")
-    op.drop_index("ix_patient_anc_visits_recorded_by_user_id", table_name="patient_anc_visits")
-    op.drop_index("ix_patient_anc_visits_status", table_name="patient_anc_visits")
-    op.drop_index("ix_patient_anc_visits_pregnancy_id", table_name="patient_anc_visits")
-    op.drop_table("patient_anc_visits")
-    op.drop_index("uq_patient_pregnancy_active", table_name="patient_pregnancies")
-    op.drop_index("ix_patient_pregnancies_recorded_by_user_id", table_name="patient_pregnancies")
-    op.drop_index("ix_patient_pregnancies_status", table_name="patient_pregnancies")
-    op.drop_index("ix_patient_pregnancies_patient_id", table_name="patient_pregnancies")
-    op.drop_table("patient_pregnancies")
+    raise RuntimeError("Downgrading would discard pregnancy, ANC, and IFA records.")

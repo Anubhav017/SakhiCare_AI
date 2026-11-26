@@ -11,7 +11,7 @@ followups_router = APIRouter(prefix="/followups", tags=["Follow-ups"])
 
 def _require_asha(request: Request, db: Session):
     user = get_session(request, db)
-    if user.role != "asha":
+    if user.role != "user":
         raise HTTPException(403, "Only ASHA workers can change follow-ups")
     return user
 

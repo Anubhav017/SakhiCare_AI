@@ -53,7 +53,7 @@ def main() -> None:
     try:
         with Session(engine) as db:
             asha = db.scalar(select(UserModel).where(UserModel.username == ASHA_USERNAME))
-            if asha is None or asha.role != "asha":
+            if asha is None or asha.role != "user":
                 raise SystemExit(f"Create the ASHA account '{ASHA_USERNAME}' before seeding synthetic patients.")
 
             patients: list[PatientModel] = []

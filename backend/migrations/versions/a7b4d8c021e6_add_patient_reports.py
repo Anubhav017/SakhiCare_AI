@@ -16,8 +16,9 @@ def upgrade():
         sa.Column("patient_id", sa.Integer(), sa.ForeignKey("patients.id", ondelete="CASCADE"), nullable=False),
         sa.Column("filename", sa.String(255), nullable=False),
         sa.Column("pdf", sa.LargeBinary(), nullable=False),
+        if_not_exists=True,
     )
 
 
-def downgrade():
-    op.drop_table("patient_reports")
+def downgrade() -> None:
+    raise RuntimeError("Downgrading would discard uploaded patient reports.")

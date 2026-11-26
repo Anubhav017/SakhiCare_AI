@@ -19,6 +19,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("rag_documents", "guideline_approved_at")
-    op.drop_column("rag_documents", "guideline_version")
-    op.drop_column("rag_documents", "guideline_title")
+    raise RuntimeError("Downgrading would discard saved guideline approval metadata.")

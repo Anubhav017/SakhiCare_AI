@@ -1,5 +1,7 @@
 """Add patient consent capture and audit events."""
 from alembic import op
+
+from migrations.compat import add_column_if_missing, create_fk_if_missing
 import sqlalchemy as sa
 
 revision = "c39a8f5d10e2"
@@ -9,13 +11,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("patients", sa.Column("consent_obtained", sa.Boolean(), nullable=True))
-    op.add_column("patients", sa.Column("consent_recorded_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("patients", sa.Column("consent_recorded_by", sa.Integer(), nullable=True))
-    op.create_foreign_key(
-        "fk_patients_consent_recorded_by_users", "patients", "users",
-        ["consent_recorded_by"], ["id"], ondelete="SET NULL",
-    )
+    add_column_if_missing("patients", sa.Column("consent_obtained", sa.Boolean(), nullable=True))
+    add_column_if_missing("patients", sa.Column("consent_recorded_at", sa.DateTime(timezone=True), nullable=True))
+    add_column_if_missing("patients", sa.Column("consent_recorded_by", sa.Integer(), nullable=True))
+    create_fk_if_missing("patients", "fk_patients_consent_recorded_by_users", "users", ["consent_recorded_by"], ["id"], ondelete="SET NULL")
     op.create_table(
         "patient_audit_events",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -24,18 +23,12 @@ def upgrade() -> None:
         sa.Column("action", sa.String(length=80), nullable=False),
         sa.Column("summary", sa.String(length=240), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        if_not_exists=True,
     )
-    op.create_index("ix_patient_audit_events_patient_id", "patient_audit_events", ["patient_id"])
-    op.create_index("ix_patient_audit_events_actor_user_id", "patient_audit_events", ["actor_user_id"])
-    op.create_index("ix_patient_audit_events_created_at", "patient_audit_events", ["created_at"])
+    op.create_index("ix_patient_audit_events_patient_id", "patient_audit_events", ["patient_id"], if_not_exists=True)
+    op.create_index("ix_patient_audit_events_actor_user_id", "patient_audit_events", ["actor_user_id"], if_not_exists=True)
+    op.create_index("ix_patient_audit_events_created_at", "patient_audit_events", ["created_at"], if_not_exists=True)
 
 
 def downgrade() -> None:
-    op.drop_index("ix_patient_audit_events_created_at", table_name="patient_audit_events")
-    op.drop_index("ix_patient_audit_events_actor_user_id", table_name="patient_audit_events")
-    op.drop_index("ix_patient_audit_events_patient_id", table_name="patient_audit_events")
-    op.drop_table("patient_audit_events")
-    op.drop_constraint("fk_patients_consent_recorded_by_users", "patients", type_="foreignkey")
-    op.drop_column("patients", "consent_recorded_by")
-    op.drop_column("patients", "consent_recorded_at")
-    op.drop_column("patients", "consent_obtained")
+    raise RuntimeError("Downgrading would discard patient consent and activity history.")

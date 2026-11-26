@@ -53,7 +53,9 @@ def ask_records(
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "private, no-store"
-    return read_records(db, get_session(request, db), body.question, body.worker)
+    return read_records(
+        db, get_session(request, db), body.question, body.worker, body.previous_questions
+    )
 
 
 @ask_router.get("/ask/records/actions/pending")

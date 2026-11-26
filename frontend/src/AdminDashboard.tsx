@@ -1,9 +1,9 @@
 import { AdminReports } from "./AdminReports";
 import { useEffect, useRef, useState } from "react";
-import { listManagedAshas, type Account, type ManagedAsha } from "./AuthPage";
+import { listManagedAshas, listManagedHierarchy, updateManagedMember, type Account, type ManagedAsha, type ManagedMember } from "./AuthPage";
 import { AskGuidelines } from "./AskGuidelines";
 import { CarePathways } from "./CarePathways";
-import { AccountMenu, ProfilePage } from "./AccountMenu";
+import { AccountMenu, accountRole, ProfilePage } from "./AccountMenu";
 import { listFollowups, listPatients, patientDetails, type Followup, type Patient } from "./records";
 import { FollowupList, PatientDetail, patientRoute } from "./PatientWorkspace";
 
@@ -36,17 +36,34 @@ function CountCard({ count, label, description }: { count: number; label: string
 
 const ASHA_PAGE_SIZE = 10;
 
+function HierarchyBranch({ person, members }: { person: Pick<Account, "id" | "name" | "role">; members: ManagedMember[] }) {
+  const children = members.filter(member => member.reports_to_id === person.id);
+  const label = person.role === "user" ? "ASHA worker · User" : person.role[0].toUpperCase() + person.role.slice(1);
+  return <li><div className="hierarchy-person"><strong>{label}</strong><small>{person.name}</small>
+    <span>{children.length} direct {children.length === 1 ? "report" : "reports"}</span></div>
+    {children.length > 0 && <ul>{children.map(child => <HierarchyBranch key={child.id} person={child} members={members} />)}</ul>}
+  </li>;
+}
+
 export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
   const [section, setSection] = useState(() => location.hash.slice(1));
   const detail = patientRoute(section);
-  const active = detail ? "patient" : section === "ask" || section === "profile" || section === "followups" || section === "workspace" || section === "reports" ? section : "today";
+  const active = detail ? "patient" : section === "ask" || section === "profile" || section === "followups" || section === "reports" || (section === "workspace" && account.role === "admin") ? section : "today";
   const showWorkspace = active === "workspace";
   const showDirectory = active === "today" || showWorkspace;
-  const [workspaceView, setWorkspaceView] = useState<"roles" | "hierarchy">("roles");
+  const [workspaceView, setWorkspaceView] = useState<"roles" | "people">("roles");
+  const [roleView, setRoleView] = useState<"table" | "hierarchy">("hierarchy");
+  const [peopleSearch, setPeopleSearch] = useState("");
+  const [editingPerson, setEditingPerson] = useState<number | null>(null);
+  const [draftRole, setDraftRole] = useState<Exclude<Account["role"], "admin" | "super_admin">>("user");
+  const [draftManager, setDraftManager] = useState("");
+  const [savingAccess, setSavingAccess] = useState(false);
+  const [accessError, setAccessError] = useState("");
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState("all");
   const [page, setPage] = useState(1);
   const [workers, setWorkers] = useState<ManagedAsha[]>([]);
+  const [members, setMembers] = useState<ManagedMember[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [followupError, setFollowupError] = useState(false);
   const [loadingFollowups, setLoadingFollowups] = useState(true);
@@ -69,10 +86,11 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
 
   useEffect(() => {
     let active = true;
-    Promise.all([listManagedAshas(), listPatients()]).then(([ashas, assigned]) => {
+    Promise.all([listManagedAshas(), listPatients(), account.role === "admin" ? listManagedHierarchy() : Promise.resolve([])]).then(([ashas, assigned, hierarchy]) => {
       if (active) {
         setWorkers(ashas);
         setPatients(assigned);
+        setMembers(hierarchy);
       }
     }).catch((error: Error) => {
       if (active) setLoadError(error.message);
@@ -80,7 +98,7 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [attempt]);
+  }, [account.role, attempt]);
 
   useEffect(() => {
     if (active !== "followups" && active !== "patient") return;
@@ -138,21 +156,46 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
   const currentPage = Math.min(page, pageCount);
   const start = (currentPage - 1) * ASHA_PAGE_SIZE;
   const visibleWorkers = matchingWorkers.slice(start, start + ASHA_PAGE_SIZE);
+  const people = [{ ...account, reports_to_id: null as number | null }, ...members];
+  const filteredPeople = people.filter(person =>
+    [person.name, person.email, person.username].some(value => value.toLowerCase().includes(peopleSearch.trim().toLowerCase()))
+  );
+  const parentRoleFor: Record<Exclude<Account["role"], "admin" | "super_admin">, Account["role"]> = {
+    executive: "admin", manager: "executive", user: "manager",
+  };
+
+  async function saveAccess(personId: number) {
+    if (!draftManager) {
+      setAccessError("Choose a reporting manager for this role.");
+      return;
+    }
+    setSavingAccess(true);
+    setAccessError("");
+    try {
+      await updateManagedMember(personId, draftRole, Number(draftManager));
+      setMembers(await listManagedHierarchy());
+      setEditingPerson(null);
+    } catch (error) {
+      setAccessError(error instanceof Error ? error.message : "Could not update workspace access.");
+    } finally {
+      setSavingAccess(false);
+    }
+  }
 
   return (
     <div className="shell admin-shell">
       <aside className="sidebar">
         <a className="brand" href="#today">
           <span className="mark" aria-hidden="true">&#10022;</span>
-          <span>SakhiCare <b>AI</b><small>ADMIN WORKSPACE</small></span>
+          <span>SakhiCare <b>AI</b><small>{accountRole(account).toUpperCase()} WORKSPACE</small></span>
         </a>
-        <nav aria-label="Admin workspace">
+        <nav aria-label={`${accountRole(account)} workspace`}>
           <a href="#today" aria-current={active === "today" ? "page" : undefined}>
             <span aria-hidden="true">&#8962;</span> ASHA
           </a>
-          <a href="#workspace" aria-current={showWorkspace ? "page" : undefined}>
+          {account.role === "admin" && <a href="#workspace" aria-current={showWorkspace ? "page" : undefined}>
             <span aria-hidden="true">&#9638;</span> Workspace
-          </a>
+          </a>}
           <a href="#reports" aria-current={active === "reports" ? "page" : undefined}>
             <span aria-hidden="true">&#9636;</span> Reports
           </a>
@@ -166,17 +209,17 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
         <AccountMenu account={account} signingOut={signingOut} onLogout={logout} />
       </aside>
       <main>
-        <header className="topbar"><span>Admin workspace</span><span className="demo">Super Admin</span></header>
+        <header className="topbar"><span>{accountRole(account)} workspace</span><span className="demo">{accountRole(account)}</span></header>
         <div id="view" className="admin-view">
           {logoutError && <p className="signup-error" role="alert">{logoutError}</p>}
           {active === "reports" && !loading && !loadError && <AdminReports workers={workers} patients={patients} />}
-          {active === "profile" && <ProfilePage account={account} backLabel="Back to ASHA" />}
-          {active === "ask" && <AskGuidelines isAdmin={true} accountName={account.name} backLabel="Back to ASHA" onSessionExpired={onSessionExpired} />}
+          {active === "profile" && <ProfilePage account={account} backLabel={`Back to ${accountRole(account)}`} />}
+          {active === "ask" && <AskGuidelines isAdmin={true} accountName={account.name} backLabel={`Back to ${accountRole(account)}`} onSessionExpired={onSessionExpired} />}
           {active === "followups" && <header className="page-head">
             <div><h1 ref={teamHeading} tabIndex={-1}>Follow-ups</h1><p>Scheduled visits for your ASHA team.</p></div>
           </header>}
           {showDirectory && <header className="page-head">
-            <div><h1 ref={teamHeading} tabIndex={-1}>{showWorkspace ? "Workspace" : "ASHA"}</h1>{!showWorkspace && <p>{account.name} &middot; Super Admin</p>}</div>
+            <div><h1 ref={teamHeading} tabIndex={-1}>{showWorkspace ? "Workspace" : "ASHA"}</h1>{!showWorkspace && <p>{account.name} &middot; {accountRole(account)}</p>}</div>
           </header>}
           {(showDirectory || active === "followups" || active === "patient" || active === "reports") && <>
             {loading && <p className="empty" role="status">Loading team and patients...</p>}
@@ -208,30 +251,99 @@ export function AdminDashboard({ account, onLogout, onSessionExpired }: Props) {
                     <button className="btn subtle" onClick={() => setFollowupAttempt(value => value + 1)}>Retry</button>
                   </div> : undefined}
                 backTo={detail.fromFollowups ? "#followups" : "#today"}
-                backLabel={detail.fromFollowups ? "Back to follow-ups" : "Back to ASHA"} pathwayReadOnly />
-            : <p className="empty">Patient unavailable. <a href="#today">Back to ASHA</a></p>)}
+                backLabel={detail.fromFollowups ? "Back to follow-ups" : `Back to ${accountRole(account)}`} pathwayReadOnly />
+            : <p className="empty">Patient unavailable. <a href="#today">Back to {accountRole(account)}</a></p>)}
           {showWorkspace && !loading && !loadError && <>
-            <div className="asha-view-switch" role="group" aria-label="Workspace view">
-              <button className="btn subtle" type="button" aria-pressed={workspaceView === "roles"}
-                onClick={() => setWorkspaceView("roles")}>Roles</button>
-              <button className="btn subtle" type="button" aria-pressed={workspaceView === "hierarchy"}
-                onClick={() => setWorkspaceView("hierarchy")}>Hierarchy</button>
+            <div className="workspace-tabs" role="tablist" aria-label="Workspace access control">
+              <button type="button" role="tab" aria-selected={workspaceView === "roles"} onClick={() => setWorkspaceView("roles")}>Roles</button>
+              <button type="button" role="tab" aria-selected={workspaceView === "people"} onClick={() => setWorkspaceView("people")}>People</button>
             </div>
-            {workspaceView === "roles" ? <section className="panel workspace-roles" aria-label="Workspace roles">
-              <table>
-                <thead><tr><th scope="col">Role</th><th scope="col">People in this workspace</th></tr></thead>
-                <tbody>
-                  <tr><th scope="row">Super Admin</th><td>1</td></tr>
-                  <tr><th scope="row">ASHA worker</th><td>{workers.length}</td></tr>
-                </tbody>
-              </table>
-            </section> : <section className="panel asha-hierarchy" aria-label="Role hierarchy">
-              <h2>Role hierarchy</h2>
-              <ul>
-                <li><strong>Super Admin</strong><small>{account.name}</small>
-                  <ul><li><strong>ASHA workers</strong><small>{workers.length} reporting to this Super Admin</small></li></ul>
-                </li>
-              </ul>
+            {workspaceView === "roles" ? <>
+              <div className="workspace-toolbar">
+                <div className="asha-view-switch" role="group" aria-label="Role display">
+                  <button className="btn subtle" type="button" aria-pressed={roleView === "table"}
+                    onClick={() => setRoleView("table")}>Table</button>
+                  <button className="btn subtle" type="button" aria-pressed={roleView === "hierarchy"}
+                    onClick={() => setRoleView("hierarchy")}>Hierarchy</button>
+                </div>
+              </div>
+              {roleView === "table" ? <section className="panel workspace-roles" aria-label="Workspace roles">
+                <table>
+                  <thead><tr><th scope="col">Role</th><th scope="col">Direct reports to</th><th scope="col">People</th><th scope="col">Ask access</th></tr></thead>
+                  <tbody>
+                    {(["admin", "executive", "manager", "user"] as const).map(role => <tr key={role}>
+                      <th scope="row">{role === "user" ? "ASHA worker · User" : role[0].toUpperCase() + role.slice(1)}</th>
+                      <td>{{ admin: "—", executive: "Admin", manager: "Executive", user: "Manager" }[role]}</td>
+                      <td>{(account.role === role ? 1 : 0) + members.filter(member => member.role === role).length}</td>
+                      <td>{role === "user" ? "Read assigned records · Ask Write with review" : "Read descendant records · Ask read-only"}</td>
+                    </tr>)}
+                  </tbody>
+                </table>
+              </section> : <section className="panel asha-hierarchy" aria-label="Role hierarchy">
+                <p className="hierarchy-caption">REPORTING HIERARCHY · ACCESS FOLLOWS THE ROLE AND REPORTING LINE</p>
+                <ul><HierarchyBranch person={account} members={members} /></ul>
+                {members.some(member => member.reports_to_id === null) && <>
+                  <h3 className="unassigned-heading">Not assigned to a reporting line yet</h3>
+                  <ul>{members.filter(member => member.reports_to_id === null).map(person =>
+                    <HierarchyBranch key={person.id} person={person} members={members} />
+                  )}</ul>
+                </>}
+              </section>}
+            </> : <section className="panel workspace-people" aria-label="People in this workspace">
+              <header className="workspace-people-toolbar">
+                <label className="workspace-search">Search people
+                  <input type="search" value={peopleSearch} placeholder="Name, username, or email"
+                    onChange={event => setPeopleSearch(event.target.value)} />
+                </label>
+                <span>{filteredPeople.length} of {people.length} people</span>
+              </header>
+              {accessError && <p className="signup-error" role="alert">{accessError}</p>}
+              <div className="workspace-people-table-wrap"><table>
+                <thead><tr><th scope="col">Name</th><th scope="col">Email / username</th><th scope="col">Role</th><th scope="col">Reports to</th><th scope="col">Ask access</th>{account.role === "admin" && <th scope="col">Actions</th>}</tr></thead>
+                <tbody>{filteredPeople.map(person => {
+                  const isSystemAdmin = person.role === "admin";
+                  const currentManager = people.find(candidate => candidate.id === person.reports_to_id);
+                  const childIds = new Set<number>();
+                  let frontier = [person.id];
+                  while (frontier.length) {
+                    const next = members.filter(member => frontier.includes(member.reports_to_id ?? -1)).map(member => member.id);
+                    next.forEach(id => childIds.add(id));
+                    frontier = next;
+                  }
+                  const parentOptions = people.filter(candidate => candidate.id !== person.id && !childIds.has(candidate.id)
+                    && candidate.role === parentRoleFor[draftRole]);
+                  const draftManagerValid = parentOptions.some(option => option.id === Number(draftManager));
+                  return <tr key={person.id}>
+                    <td><strong>{person.name}</strong></td>
+                    <td>{person.email}<small>{person.username}</small></td>
+                    <td>{editingPerson === person.id ? <select aria-label={`Role for ${person.name}`} value={draftRole}
+                      onChange={event => {
+                        const nextRole = event.target.value as Exclude<Account["role"], "admin" | "super_admin">;
+                        setDraftRole(nextRole);
+                        const oldParent = people.find(candidate => candidate.id === Number(draftManager));
+                        if (oldParent?.role !== parentRoleFor[nextRole]) setDraftManager("");
+                      }}><option value="user">User · ASHA</option><option value="manager">Manager</option><option value="executive">Executive</option></select>
+                      : person.role === "user" ? "User · ASHA" : person.role[0].toUpperCase() + person.role.slice(1)}</td>
+                    <td>{editingPerson === person.id ? <select aria-label={`Reporting manager for ${person.name}`} value={draftManager}
+                      onChange={event => setDraftManager(event.target.value)}><option value="">Select manager</option>
+                      {parentOptions.map(option => <option key={option.id} value={option.id}>{option.name} · {option.role}</option>)}</select>
+                      : currentManager?.name ?? (isSystemAdmin ? "Organization root" : "Not assigned")}</td>
+                    <td><span className={`pill ${((editingPerson === person.id ? draftRole : person.role) === "user") ? "done" : ""}`}>
+                      {(editingPerson === person.id ? draftRole : person.role) === "user" ? "Read + Ask Write" : "Read-only"}
+                    </span></td>
+                    {account.role === "admin" && <td>{isSystemAdmin ? <span>System admin</span> : editingPerson === person.id ? <div className="workspace-row-actions">
+                      <button type="button" className="btn subtle" disabled={savingAccess} onClick={() => { setEditingPerson(null); setAccessError(""); }}>Cancel</button>
+                      <button type="button" className="btn" disabled={savingAccess || !draftManagerValid} onClick={() => void saveAccess(person.id)}>{savingAccess ? "Saving…" : "Save"}</button>
+                    </div> : <button type="button" className="btn subtle" onClick={() => {
+                      setEditingPerson(person.id);
+                      setDraftRole(person.role === "admin" || person.role === "super_admin" ? "user" : person.role);
+                      setDraftManager(person.reports_to_id == null ? "" : String(person.reports_to_id));
+                      setAccessError("");
+                    }}>Manage access</button>}</td>}
+                  </tr>;
+                })}</tbody>
+              </table></div>
+              <p className="workspace-access-note">Ask Write is included with the ASHA User role and requires review before saving. Manager, Executive, and Admin roles are read-only for patient records.</p>
             </section>}
           </>}
           {active === "today" && <>

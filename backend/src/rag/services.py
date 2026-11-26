@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from src.User.models import UserModel
+from src.User.roles import root_admin_id
 from src.utils.ai_client import chat
 from src.rag.retrieval import pdf_context
 
@@ -30,7 +31,7 @@ def answer_guideline(
 ):
     history = "\n".join(previous_questions or ())
     search_text = f"{question}\n{history}" if history else question
-    library_id = user.id if user.role == "super_admin" else user.admin_id
+    library_id = root_admin_id(db, user)
     evidence, references = (
         pdf_context(db, library_id, search_text, None, guidelines_only=True, language=language)
         if library_id is not None else ("", [])
@@ -47,7 +48,7 @@ def answer_guideline(
     reply_language = "Hindi in Devanagari" if language == "hi" else "English"
     response = chat(
         system=(
-            f"You are Ask SakhiCare, a guideline assistant for ASHA workers and their Super Admins. "
+            f"You are Ask SakhiCare, a guideline assistant for ASHA workers and their Managers, Executives, and Admins. "
             f"Answer in simple {reply_language}, suitable for a field worker. Put the main point first. "
             "Explain topics such as Hb testing, anemia counselling, and general follow-up guidance. "
             "Ground each clinical claim in the supplied guideline excerpts. Cite the supplied title and page; "

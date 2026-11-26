@@ -5,15 +5,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from src.User.models import UserModel
+from src.User.roles import is_supervisor, managed_user_ids
 from src.patients.models import PatientAuditEvent, PatientModel, PatientReferral, PatientScreening
 from src.pathways.models import CarePathwayRun, CarePathwayStep
 
 
 def _patient_scope(user: UserModel):
-    if user.role == "super_admin":
-        return PatientModel.asha_user_id.in_(
-            select(UserModel.id).where(UserModel.role == "asha", UserModel.admin_id == user.id)
-        )
+    if is_supervisor(user):
+        return PatientModel.asha_user_id.in_(managed_user_ids(user.id))
     return PatientModel.asha_user_id == user.id
 
 
@@ -100,7 +99,7 @@ def update_step(db: Session, user: UserModel, run_id: int, step_id: int, complet
     run = db.scalar(query)
     if run is None:
         raise HTTPException(404, "Care pathway not found")
-    if user.role != "asha":
+    if user.role != "user":
         raise HTTPException(403, "Only the assigned ASHA worker can update pathway steps")
     step = next((item for item in run.steps if item.id == step_id), None)
     if step is None:

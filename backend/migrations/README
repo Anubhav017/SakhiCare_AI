@@ -1,1 +1,35 @@
-Generic single-database configuration.
+# Database migrations
+
+SQLAlchemy models describe the current schema. Alembic revisions are the ordered changes that move every database from its current revision to that schema. Keep this directory in Git.
+
+## When a model changes
+
+From `backend/`, with the target PostgreSQL database available:
+
+```powershell
+uv run alembic revision --autogenerate -m "describe the schema change"
+```
+
+Review the generated revision before committing it. Make sure it handles existing data, nullability/default changes, foreign keys, check constraints, unique constraints, and indexes. Then apply it locally:
+
+```powershell
+uv run alembic upgrade head
+```
+
+To check whether the connected database differs from the imported SQLAlchemy models:
+
+```powershell
+uv run alembic check
+```
+
+Commit the model change and its migration together. Do not edit a revision that has already been applied in a shared database; add a new revision instead. Do not use `Base.metadata.create_all()` as a deployment upgrade mechanism.
+
+## Change types
+
+- **Add a field/table/index/constraint:** add it in a new revision. For a required field on a populated table, add it nullable or with a safe server default, backfill existing rows, then enforce `NOT NULL` in the same or a later revision.
+- **Change a field:** use `alter_column` and include any required data conversion before enforcing the new type or constraint.
+- **Rename a field/table:** use an explicit rename operation. Autogeneration may interpret a rename as drop plus add, which would lose the old values.
+- **Remove a field/table:** first deploy code that no longer reads or writes it, back up or migrate any retained values, then drop it in a later revision. Review destructive operations manually.
+- **Application CRUD/query changes:** GET/insert/update/delete behavior belongs in the API/service code. A migration is needed only when the persisted schema or stored data shape changes. Patient-care history should generally be archived/soft-deleted rather than erased.
+
+Each database tracks its own current revision in `alembic_version`. `alembic upgrade head` applies only pending revisions and is safe to rerun after a successful upgrade. A fresh database follows the full chain; an existing database follows the same chain from its recorded revision. Keep existing volumes and data; do not use `docker compose down -v` as a migration fix.

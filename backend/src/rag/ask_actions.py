@@ -361,7 +361,7 @@ def _preview(plan: AskChangePlan, patient: PatientModel | None, expected: dict |
 
 
 def propose_action(db: DbSession, user: UserModel, question: str) -> dict:
-    if user.role != "asha":
+    if user.role != "user":
         raise HTTPException(403, "Only ASHA workers can prepare care-record changes in Ask.")
     today = _today()
     raw_plan = call_tool(
@@ -740,7 +740,7 @@ def _graph_for(checkpointer):
             try:
                 draft = _get_draft(db, state["draft_id"], state["actor_id"], lock=True)
                 user = db.get(UserModel, state["actor_id"])
-                if user is None or user.role != "asha":
+                if user is None or user.role != "user":
                     raise HTTPException(403, "Only ASHA workers can save care-record changes.")
                 _apply_draft(db, draft, user)
                 return {"result": {"status": "applied"}}
@@ -788,7 +788,7 @@ def stage_action(db: DbSession, user: UserModel, question: str, graph) -> dict:
 
 
 def resolve_action(db: DbSession, user: UserModel, draft_id: str, approved: bool, graph) -> dict:
-    if user.role != "asha":
+    if user.role != "user":
         raise HTTPException(403, "Only ASHA workers can confirm care-record changes.")
     draft = _get_draft(db, draft_id, user.id)
     if draft.status != "pending":
@@ -811,7 +811,7 @@ def resolve_action(db: DbSession, user: UserModel, draft_id: str, approved: bool
 
 
 def list_pending_actions(db: DbSession, user: UserModel) -> list[dict]:
-    if user.role != "asha":
+    if user.role != "user":
         return []
     now = _utcnow()
     expired = list(db.scalars(select(AskActionDraft).where(
